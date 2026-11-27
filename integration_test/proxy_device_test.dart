@@ -35,6 +35,7 @@ void main() {
           'proxies: [{name: fixture, type: http, server: 127.0.0.1, port: $port}]');
       final endpoint = (await tester.runAsync(() => core.start(profile,
           selectedNode: 'fixture',
+          routingMode: RoutingMode.strict,
           proxyDomains: ['browser-tls-probe.invalid'])))!;
       await tester.pumpWidget(MaterialApp(home: BrowserScreen(endpoint: endpoint)));
       final open = find.byWidgetPredicate(
