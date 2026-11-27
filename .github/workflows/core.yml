@@ -16,7 +16,7 @@ permissions:
   contents: read
 concurrency:
   group: core-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   host-routing:
     runs-on: ubuntu-latest
@@ -106,8 +106,15 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v5
         with:
-          go-version-file: vendor/apple/bind/clash/go.mod
+          go-version: '1.26.11'
           cache-dependency-path: vendor/apple/bind/clash/go.sum
+      - name: Verify standalone Apple Go toolchain
+        working-directory: vendor/apple/bind/clash
+        run: |
+          test "$(go env GOVERSION)" = go1.26.11
+          case "$(go env GOROOT)/" in
+            "$(go env GOMODCACHE)/"*) echo 'GOROOT must not be under GOMODCACHE'; exit 1 ;;
+          esac
       - name: Build iOS SDK only
         working-directory: vendor/apple
         run: |
