@@ -97,12 +97,15 @@ void main() {
           'Authenticated CONNECT never reached the local upstream');
       expect(fixture.destinations, contains(LocalUpstream.target));
 
+      await waitFor(tester,
+          () => find.text('网页加载失败（无直连回退）').evaluate().isNotEmpty,
+          'Controlled upstream rejection did not finish the first navigation');
+
       // The core defaults to REJECT. A second domain must not reach upstream.
       await tester.enterText(address, 'https://browser-blocked-probe.invalid/');
       await tester.tap(open);
       await waitFor(tester,
-          () => find.text('网页加载失败（无直连回退）').evaluate().isNotEmpty ||
-              find.text('代理认证失败或不兼容').evaluate().isNotEmpty,
+          () => find.text('网页加载失败（无直连回退）').evaluate().isNotEmpty,
           'Rejected navigation did not report a failure');
       expect(fixture.destinations, isNot(contains('browser-blocked-probe.invalid:443')));
     } finally {

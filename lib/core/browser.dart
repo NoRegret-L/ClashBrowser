@@ -199,6 +199,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     }
     FocusScope.of(context).unfocus();
     _address.text = url.toString();
+    setState(() => _status = '正在加载网页…');
     _command('load', url.toString());
   }
 
