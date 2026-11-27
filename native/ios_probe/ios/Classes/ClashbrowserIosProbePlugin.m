@@ -10,6 +10,13 @@
                                   binaryMessenger:[registrar messenger]];
   ClashbrowserIosProbePlugin *instance = [[ClashbrowserIosProbePlugin alloc] init];
   [registrar addMethodCallDelegate:instance channel:channel];
+  FlutterMethodChannel *storage = [FlutterMethodChannel methodChannelWithName:@"clashbrowser/storage/v1" binaryMessenger:[registrar messenger]];
+  [storage setMethodCallHandler:^(FlutterMethodCall *call, FlutterResult result) {
+    if (![call.method isEqualToString:@"directory"]) { result(FlutterMethodNotImplemented); return; }
+    NSURL *dir = [[NSFileManager defaultManager] URLForDirectory:NSApplicationSupportDirectory inDomain:NSUserDomainMask appropriateForURL:nil create:YES error:nil];
+    if (dir) result(dir.path);
+    else result([FlutterError errorWithCode:@"STORAGE" message:@"App storage unavailable" details:nil]);
+  }];
   [registrar registerViewFactory:[[CBBrowserFactory alloc] initWithMessenger:[registrar messenger]] withId:@"clashbrowser/webview/v2"];
 }
 

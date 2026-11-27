@@ -22,6 +22,11 @@ private const val TYPE = "clashbrowser/webview/v2"
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "clashbrowser/storage/v1")
+            .setMethodCallHandler { call, result ->
+                if (call.method == "directory") result.success(filesDir.absolutePath)
+                else result.notImplemented()
+            }
         flutterEngine.platformViewsController.registry.registerViewFactory(
             TYPE, BrowserFactory(flutterEngine.dartExecutor.binaryMessenger))
     }

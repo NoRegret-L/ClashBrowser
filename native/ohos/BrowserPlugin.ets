@@ -15,12 +15,24 @@ class BrowserArgs {
 }
 
 export class BrowserPlugin implements FlutterPlugin {
+  private storage: MethodChannel | undefined;
   getUniqueClassName(): string { return 'ClashBrowserPlugin'; }
   onAttachedToEngine(binding: FlutterPluginBinding): void {
+    const directory = binding.getApplicationContext().filesDir;
+    this.storage = new MethodChannel(binding.getBinaryMessenger(), 'clashbrowser/storage/v1');
+    this.storage.setMethodCallHandler({
+      onMethodCall: (call: MethodCall, result: MethodResult): void => {
+        if (call.method === 'directory') result.success(directory);
+        else result.notImplemented();
+      }
+    });
     binding.getPlatformViewRegistry().registerViewFactory(VIEW_TYPE,
       new BrowserFactory(binding.getBinaryMessenger()));
   }
-  onDetachedFromEngine(binding: FlutterPluginBinding): void {}
+  onDetachedFromEngine(binding: FlutterPluginBinding): void {
+    this.storage?.setMethodCallHandler(null);
+    this.storage = undefined;
+  }
 }
 
 class BrowserFactory extends PlatformViewFactory {
