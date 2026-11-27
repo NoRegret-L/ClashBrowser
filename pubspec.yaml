@@ -1,0 +1,14 @@
+name: clashbrowser
+description: Mobile browser with application-only proxy routing.
+publish_to: none
+version: 0.0.1+1
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+flutter:
+  uses-material-design: true

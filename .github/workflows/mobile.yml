@@ -1,0 +1,95 @@
+name: Mobile bootstrap
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mobile-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android-ios:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: android
+          - os: macos-15
+            platform: ios
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        if: matrix.platform == 'android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+      - name: Generate native shell
+        run: |
+          flutter create --no-pub --project-name clashbrowser --org io.github.noregretl --platforms=${{ matrix.platform }} "$RUNNER_TEMP/clashbrowser"
+          cp pubspec.yaml "$RUNNER_TEMP/clashbrowser/"
+          cp lib/main.dart "$RUNNER_TEMP/clashbrowser/lib/"
+          cp test/widget_test.dart "$RUNNER_TEMP/clashbrowser/test/"
+          rm -f "$RUNNER_TEMP/clashbrowser/analysis_options.yaml"
+      - name: Analyze and test
+        working-directory: ${{ runner.temp }}/clashbrowser
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+      - name: Android debug APK
+        if: matrix.platform == 'android'
+        working-directory: ${{ runner.temp }}/clashbrowser
+        run: flutter build apk --debug
+      - name: iOS unsigned app
+        if: matrix.platform == 'ios'
+        working-directory: ${{ runner.temp }}/clashbrowser
+        run: |
+          flutter build ios --release --no-codesign
+          ditto -c -k --keepParent build/ios/iphoneos/Runner.app "$RUNNER_TEMP/ios-unsigned.zip"
+      - uses: actions/upload-artifact@v4
+        if: matrix.platform == 'android'
+        with:
+          name: android-bootstrap
+          path: ${{ runner.temp }}/clashbrowser/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: matrix.platform == 'ios'
+        with:
+          name: ios-bootstrap-unsigned
+          path: ${{ runner.temp }}/ios-unsigned.zip
+          if-no-files-found: error
+  harmonyos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build experimental OHOS debug HAP
+        uses: zhongdaiqi/flutter-ohos-builder@5479a5b90e78794a2d04294ca0f14788911678e0
+        with:
+          flutter-version: '3.41.10-ohos-1.0.1'
+          ohos-api: '26'
+          build-mode: debug
+          build-target: hap
+          bundle-name: io.github.noregretl.clashbrowser
+          app-name: ClashBrowser
+          ohos-sign-enabled: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: harmonyos-bootstrap
+          path: |
+            build/**/*.hap
+            ohos/**/*.hap
+          if-no-files-found: error
