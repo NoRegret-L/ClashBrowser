@@ -17,8 +17,11 @@ void main() {
     expect(find.text('已导入 1 个节点'), findsOneWidget);
     expect(find.text('Demo'), findsOneWidget);
     expect(find.text('代理未就绪 · 浏览器网络已禁用'), findsOneWidget);
-    await tester.ensureVisible(find.text('删除配置'));
-    await tester.tap(find.text('删除配置'));
+    final deleteButton = find.widgetWithText(OutlinedButton, '删除配置');
+    await tester.ensureVisible(deleteButton);
+    await tester.pumpAndSettle();
+    expect(deleteButton.hitTestable(), findsOneWidget);
+    await tester.tap(deleteButton.hitTestable());
     await tester.pumpAndSettle();
     expect(find.text('Demo'), findsNothing);
   });
