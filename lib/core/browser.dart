@@ -54,6 +54,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   bool _switching = false;
   bool _navigationFailed = false;
   String? _restoreUrl;
+  String? _lastRouteTarget;
   bool get _canSwitch => !_closing && !_switching && _channel != null && (_ready || _status == '代理不可用，禁止导航');
 
   Future<void> _switch(void Function() change) async {
@@ -70,6 +71,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         _generation++;
         _nativeExperimentalJavaScript = false;
         _restoreUrl = _tabs.active.url;
+        _lastRouteTarget = null;
         _addressEdited = false;
         _address.text = _restoreUrl ?? '';
         _status = '正在配置应用内代理…';
@@ -181,6 +183,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
           // A late page-finished callback must never replace a user's draft.
           if (!_addressEdited && !_addressFocus.hasFocus) _address.text = url;
           _tabs.visited(url);
+          _lastRouteTarget = Uri.parse(url).host;
           _status = '网页加载完成 · 应用内代理';
         });
         await _library.record(url);
@@ -205,6 +208,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
     if (!_ready || _closing || _switching || _channel == null) return;
     final channel = _channel!;
     if (method != 'stop') _navigationFailed = false;
+    if (method == 'load' && value != null) {
+      setState(() => _lastRouteTarget = Uri.parse(value).host);
+    }
     try {
       final ok = await channel.invokeMethod<bool>(method, value);
       if (ok != true && mounted && channel == _channel && !_switching) {
@@ -229,9 +235,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   Future<void> _showObservedRoute() async {
-    final url = _tabs.active.url;
-    if (url == null || _closing || _switching) return;
-    final host = Uri.parse(url).host;
+    final host = _lastRouteTarget;
+    if (host == null || _closing || _switching) return;
     String message = '暂无该域名的原生路由记录';
     try {
       final result = await NativeLoopback.command({'action': 'observedRoute', 'host': host});
@@ -240,7 +245,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         message = matches.map((m) => '${m['policy']} · ${m['rule']} · ${m['payload']}').join('\n');
       }
     } catch (_) { message = '原生连接信息不可用'; }
-    if (!mounted || _closing || _switching || _tabs.active.url != url) return;
+    if (!mounted || _closing || _switching || _lastRouteTarget != host) return;
     await showDialog<void>(context: context, builder: (context) => AlertDialog(
       title: Text(host), content: Text('$message\n\n显示当前代理会话最近的真实路由决策，包含已结束连接及 REJECT；不代表请求成功，也不是单个网页的完整流量清单。'),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
@@ -307,7 +312,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
           actions: [
             if (widget.policyLabel != null) IconButton(tooltip: '切换代理策略：${widget.policyLabel}',
               onPressed: _closing || _switching || _channel == null ? null : () => _close(editPolicy: true), icon: const Icon(Icons.tune)),
-            IconButton(tooltip: '当前域名实际命中', onPressed: _closing || _switching || _tabs.active.url == null ? null : _showObservedRoute, icon: const Icon(Icons.route)),
+            IconButton(tooltip: '当前域名实际命中', onPressed: _closing || _switching || _lastRouteTarget == null ? null : _showObservedRoute, icon: const Icon(Icons.route)),
             IconButton(tooltip: '浏览历史', onPressed: _closing || _switching ? null : () => _showLibrary(false), icon: const Icon(Icons.history)),
             IconButton(tooltip: '收藏夹', onPressed: _closing || _switching ? null : () => _showLibrary(true), icon: const Icon(Icons.bookmarks_outlined)),
             IconButton(tooltip: '关闭浏览器',
