@@ -18,9 +18,9 @@ class SubscriptionLink {
   /// No automatic redirect, insecure TLS override, or credential logging.
   static Future<SubscriptionProfile> fetch(String input) async {
     final uri = validate(input);
-    final client = HttpClient()
-      ..findProxy = (_) => 'DIRECT'
-      ..connectionTimeout = const Duration(seconds: 20);
+    final client = HttpClient();
+    client.findProxy = (_) => 'DIRECT';
+    client.connectionTimeout = const Duration(seconds: 20);
     try {
       return await (() async {
         final request = await client.getUrl(uri);
