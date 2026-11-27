@@ -10,6 +10,9 @@ static NSString *const CBViewType = @"clashbrowser/webview/v2";
 @property(nonatomic,strong) FlutterMethodChannel *channel;
 @property(nonatomic,assign) BOOL ready;
 @property(nonatomic,assign) BOOL closed;
+@property(nonatomic,assign) NSInteger proxyPort;
+@property(nonatomic,copy) NSString *proxyUser;
+@property(nonatomic,copy) NSString *proxyPassword;
 - (instancetype)initWithFrame:(CGRect)frame identifier:(int64_t)identifier arguments:(id)args messenger:(NSObject<FlutterBinaryMessenger> *)messenger;
 @end
 
@@ -47,6 +50,8 @@ static NSString *const CBViewType = @"clashbrowser/webview/v2";
     nw_endpoint_t endpoint = nw_endpoint_create_host("127.0.0.1", portText.UTF8String);
     nw_proxy_config_t proxy = nw_proxy_config_create_http_connect(endpoint, NULL);
     if (!proxy) return self;
+    _proxyPort = port.integerValue;
+    _proxyUser = [user copy]; _proxyPassword = [pass copy];
     nw_proxy_config_set_username_and_password(proxy, user.UTF8String, pass.UTF8String);
     nw_proxy_config_set_failover_allowed(proxy, false);
     config.websiteDataStore.proxyConfigurations = @[proxy];
@@ -79,12 +84,37 @@ static NSString *const CBViewType = @"clashbrowser/webview/v2";
 }
 - (void)close {
     self.ready = NO; self.closed = YES;
+    self.proxyUser = nil; self.proxyPassword = nil;
     [self.web stopLoading]; self.web.navigationDelegate = nil; self.web.UIDelegate = nil;
     [self.web removeFromSuperview]; self.web = nil;
 }
 - (void)dealloc { [self close]; [self.channel setMethodCallHandler:nil]; }
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
     decisionHandler(!self.closed && self.ready && [self safeURL:action.request.URL] && action.targetFrame != nil ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
+}
+- (void)webView:(WKWebView *)webView didReceiveAuthenticationChallenge:(NSURLAuthenticationChallenge *)challenge completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition, NSURLCredential *))completionHandler {
+    NSURLProtectionSpace *space = challenge.protectionSpace;
+    if ([space isProxy]) {
+        // Only a Basic challenge from this exact local proxy receives credentials.
+        // A platform that does not expose the proxy challenge still fails closed.
+        if (self.ready && !self.closed && challenge.previousFailureCount == 0 &&
+            [space.host isEqualToString:@"127.0.0.1"] && space.port == self.proxyPort &&
+            [space.authenticationMethod isEqualToString:NSURLAuthenticationMethodHTTPBasic] &&
+            self.proxyUser.length && self.proxyPassword.length) {
+            NSURLCredential *credential = [NSURLCredential credentialWithUser:self.proxyUser password:self.proxyPassword persistence:NSURLCredentialPersistenceNone];
+            completionHandler(NSURLSessionAuthChallengeUseCredential, credential);
+        } else {
+            completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
+            if (!self.closed) [self.channel invokeMethod:@"state" arguments:@"authError"];
+        }
+        return;
+    }
+    // Preserve normal platform trust verification; never give local proxy credentials to a website.
+    if ([space.authenticationMethod isEqualToString:NSURLAuthenticationMethodServerTrust]) {
+        completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, nil);
+    } else {
+        completionHandler(NSURLSessionAuthChallengeCancelAuthenticationChallenge, nil);
+    }
 }
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
     if (!self.closed) [self.channel invokeMethod:@"state" arguments:@"loadError"];

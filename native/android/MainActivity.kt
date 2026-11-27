@@ -22,6 +22,7 @@ private const val TYPE = "clashbrowser/webview/v2"
 class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        WebView.setWebContentsDebuggingEnabled(false)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "clashbrowser/storage/v1")
             .setMethodCallHandler { call, result ->
                 if (call.method == "directory") result.success(filesDir.absolutePath)
@@ -68,6 +69,8 @@ private class BrowserView(context: Context, messenger: BinaryMessenger, id: Int,
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             setSupportMultipleWindows(false)
             domStorageEnabled = false
+            javaScriptCanOpenWindowsAutomatically = false
+            setGeolocationEnabled(false)
             blockNetworkLoads = true
         }
         channel.setMethodCallHandler { call, result ->

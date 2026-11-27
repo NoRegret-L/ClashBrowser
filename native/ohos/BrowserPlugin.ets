@@ -18,6 +18,7 @@ export class BrowserPlugin implements FlutterPlugin {
   private storage: MethodChannel | undefined;
   getUniqueClassName(): string { return 'ClashBrowserPlugin'; }
   onAttachedToEngine(binding: FlutterPluginBinding): void {
+    webview.WebviewController.setWebDebuggingAccess(false);
     const directory = binding.getApplicationContext().filesDir;
     this.storage = new MethodChannel(binding.getBinaryMessenger(), 'clashbrowser/storage/v1');
     this.storage.setMethodCallHandler({

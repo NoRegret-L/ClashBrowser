@@ -44,6 +44,9 @@ with zipfile.ZipFile(aar) as z:
         for lib in ("libclash.so", "libmihomo-jni.so"):
             (directory / lib).write_bytes(z.read(f"jni/{abi}/{lib}"))
 PY
+  if [[ "${CLASHBROWSER_PREPARE_ONLY:-0}" == 1 ]]; then
+    exit 0
+  fi
   cd "$project"
   flutter pub get
   flutter analyze --no-pub
