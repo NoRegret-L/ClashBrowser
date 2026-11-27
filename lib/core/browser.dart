@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'core_adapter.dart';
+import 'native_loopback.dart';
 import 'ohos_view.dart';
 import 'browser_address.dart';
 import 'browser_library.dart';
@@ -17,21 +18,22 @@ const ohosExperimentalJavaScript = bool.fromEnvironment('CLASHBROWSER_OHOS_EXPER
 
 
 class BrowserBridge {
-  static Future<void> open(BuildContext context, CoreEndpoint endpoint) async {
+  static Future<bool> open(BuildContext context, CoreEndpoint endpoint, {String? policyLabel}) async {
     if (endpoint.username != 'browser' ||
         endpoint.password == null || endpoint.password!.isEmpty) {
       throw StateError('Proxy authentication unavailable');
     }
     final library = await BrowserLibrary.open();
-    if (!context.mounted) return;
-    await Navigator.of(context).push<void>(MaterialPageRoute(
-      builder: (_) => BrowserScreen(endpoint: endpoint, library: library),
-    ));
+    if (!context.mounted) return false;
+    return await Navigator.of(context).push<bool>(MaterialPageRoute(
+      builder: (_) => BrowserScreen(endpoint: endpoint, library: library, policyLabel: policyLabel),
+    )) ?? false;
   }
 }
 
 class BrowserScreen extends StatefulWidget {
-  const BrowserScreen({super.key, required this.endpoint, this.library});
+  const BrowserScreen({super.key, required this.endpoint, this.library, this.policyLabel});
+  final String? policyLabel;
   final BrowserLibrary? library;
   final CoreEndpoint endpoint;
 
@@ -226,7 +228,26 @@ class _BrowserScreenState extends State<BrowserScreen> {
     _command('load', url.toString());
   }
 
-  Future<void> _close() async {
+  Future<void> _showObservedRoute() async {
+    final url = _tabs.active.url;
+    if (url == null || _closing || _switching) return;
+    final host = Uri.parse(url).host;
+    String message = '暂无该域名的活动连接记录';
+    try {
+      final result = await NativeLoopback.command({'action': 'observedRoute', 'host': host});
+      if (result['observed'] == true) {
+        final matches = result['matches'] as List;
+        message = matches.map((m) => '${m['rule']} · ${m['payload']}').join('\n');
+      }
+    } catch (_) { message = '原生连接信息不可用'; }
+    if (!mounted || _closing || _switching || _tabs.active.url != url) return;
+    await showDialog<void>(context: context, builder: (context) => AlertDialog(
+      title: Text(host), content: Text('$message\n\n仅显示 Mihomo 当前活动连接的实际匹配；已结束或拒绝请求可能无记录。'),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
+    ));
+  }
+
+  Future<void> _close({bool editPolicy = false}) async {
     if (_closing || _switching) return;
     setState(() { _closing = true; _ready = false; });
     try {
@@ -238,7 +259,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
       if (!mounted) return;
       setState(() => _allowPop = true);
       await WidgetsBinding.instance.endOfFrame;
-      if (mounted) Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop(editPolicy);
     } catch (_) {
       if (mounted) setState(() {
         _closing = false;
@@ -284,10 +305,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
           automaticallyImplyLeading: false,
           title: const Text('ClashBrowser'),
           actions: [
+            if (widget.policyLabel != null) IconButton(tooltip: '切换代理策略：${widget.policyLabel}',
+              onPressed: _closing || _switching || _channel == null ? null : () => _close(editPolicy: true), icon: const Icon(Icons.tune)),
+            IconButton(tooltip: '当前域名实际命中', onPressed: _closing || _switching || _tabs.active.url == null ? null : _showObservedRoute, icon: const Icon(Icons.route)),
             IconButton(tooltip: '浏览历史', onPressed: _closing || _switching ? null : () => _showLibrary(false), icon: const Icon(Icons.history)),
             IconButton(tooltip: '收藏夹', onPressed: _closing || _switching ? null : () => _showLibrary(true), icon: const Icon(Icons.bookmarks_outlined)),
             IconButton(tooltip: '关闭浏览器',
-            onPressed: _closing || _switching ? null : _close, icon: const Icon(Icons.close))],
+            onPressed: _closing || _switching ? null : () => _close(), icon: const Icon(Icons.close))],
         ),
         body: SafeArea(
           child: Column(children: [

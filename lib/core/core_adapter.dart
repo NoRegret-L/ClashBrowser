@@ -22,6 +22,7 @@ abstract interface class CoreAdapter {
     required String selectedNode,
     RoutingMode routingMode = RoutingMode.strict,
     bool adBlock = true,
+    Iterable<String> customRules = const [],
     Iterable<String> proxyDomains = const [],
     Iterable<String> directDomains = const [],
   });
@@ -41,7 +42,7 @@ class ChannelCoreAdapter implements CoreAdapter {
   Future<Map<String, dynamic>?> _start(String config, RoutingMode routingMode) async {
     if (!_native) return _testChannel.invokeMapMethod<String, dynamic>('startLoopback', {'configJson': config});
     _home = await Directory.systemTemp.createTemp('clashbrowser-core-');
-    if (routingMode == RoutingMode.smart) await BuiltinRules.stage(_home!);
+    if (routingMode != RoutingMode.strict) await BuiltinRules.stage(_home!);
     return NativeLoopback.command({'action': 'start', 'configJson': config, 'homeDir': _home!.path});
   }
 
@@ -65,6 +66,7 @@ class ChannelCoreAdapter implements CoreAdapter {
     required String selectedNode,
     RoutingMode routingMode = RoutingMode.strict,
     bool adBlock = true,
+    Iterable<String> customRules = const [],
     Iterable<String> proxyDomains = const [],
     Iterable<String> directDomains = const [],
   }) async {
@@ -75,6 +77,7 @@ class ChannelCoreAdapter implements CoreAdapter {
       selectedNode: selectedNode,
       routingMode: routingMode,
       adBlock: adBlock,
+      customRules: customRules,
       proxyDomains: proxyDomains,
       directDomains: directDomains,
     );

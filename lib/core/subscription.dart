@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:yaml/yaml.dart';
 
 /// Import only a deliberately supported subset of Clash nodes.
 /// The source document is never sent to the native core.
-enum RoutingMode { strict, smart }
+enum RoutingMode { strict, smart, global }
+
 
 class SubscriptionProfile {
   SubscriptionProfile._(this._nodes, this.ignoredSections);
@@ -171,6 +173,7 @@ class SubscriptionProfile {
     required String selectedNode,
     RoutingMode routingMode = RoutingMode.strict,
     bool adBlock = true,
+    Iterable<String> customRules = const [],
     Iterable<String> proxyDomains = const [],
     Iterable<String> directDomains = const [],
   }) {
@@ -203,11 +206,59 @@ class SubscriptionProfile {
         {'name': 'BROWSER-PROXY', 'type': 'select', 'proxies': [selectedNode]},
       ],
       'rules': [
+        ...validateCustomRules(customRules),
         for (final d in direct) 'DOMAIN-SUFFIX,$d,DIRECT',
         for (final d in proxy) 'DOMAIN-SUFFIX,$d,BROWSER-PROXY',
         'MATCH,REJECT',
       ],
     });
+  }
+
+  /// Ordered first-match rules, limited to the four supported types.
+  static List<String> validateCustomRules(Iterable<String> input) {
+    final result = <String>[];
+    for (final line in input) {
+      final p = line.split(',').map((v) => v.trim()).toList();
+      if (p.length != 3) throw const FormatException('Expected TYPE,target,policy');
+      final type = p[0].toUpperCase();
+      final target = p[1].toLowerCase();
+      final action = p[2].toUpperCase() == 'PROXY' ? 'BROWSER-PROXY' : p[2].toUpperCase();
+      if (!{'DIRECT', 'BROWSER-PROXY', 'REJECT'}.contains(action)) {
+        throw const FormatException('Invalid rule action');
+      }
+      if (type == 'DOMAIN' || type == 'DOMAIN-SUFFIX') {
+        _domains([target]);
+        result.add('$type,$target,$action');
+      } else if (type == 'IP-CIDR' || type == 'IP-CIDR6') {
+        final parts = target.split('/');
+        final address = parts.length == 2 ? InternetAddress.tryParse(parts[0]) : null;
+        final bits = parts.length == 2 ? int.tryParse(parts[1]) : null;
+        final family = type == 'IP-CIDR' ? InternetAddressType.IPv4 : InternetAddressType.IPv6;
+        if (address == null || address.type != family || parts[0].contains('%') ||
+            bits == null || bits < 0 || bits > (family == InternetAddressType.IPv4 ? 32 : 128) ||
+            !RegExp(r'^[0-9]+(Iterable<String> input) {
+    final result = <String>{};
+    final label = RegExp(r'^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$');
+    for (final raw in input) {
+      final domain = raw.trim().toLowerCase();
+      if (domain.length > 253 || !domain.contains('.') ||
+          !domain.split('.').every(label.hasMatch)) {
+        throw const FormatException('Invalid domain suffix');
+      }
+      result.add(domain);
+    }
+    return result;
+  }
+}
+).hasMatch(parts[1])) {
+          throw const FormatException('Invalid IP prefix');
+        }
+        result.add('$type,$target,$action,no-resolve');
+      } else {
+        throw const FormatException('Unsupported rule type');
+      }
+    }
+    return result;
   }
 
   static Set<String> _domains(Iterable<String> input) {

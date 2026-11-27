@@ -60,3 +60,10 @@ func smartRules(custom []string, adBlock bool) []string {
   "RULE-SET,builtin-telegramcidr,BROWSER-PROXY,no-resolve",
   "MATCH,BROWSER-PROXY")
 }
+
+func globalRules(custom []string, adBlock bool) []string {
+ rules:=append([]string{},custom...)
+ if adBlock {rules=append(rules,"RULE-SET,builtin-reject,REJECT")}
+ // Private access remains gated until the cross-platform LAN phase.
+ return append(rules,"RULE-SET,builtin-private,REJECT","RULE-SET,builtin-lancidr,REJECT,no-resolve","MATCH,BROWSER-PROXY")
+}

@@ -7,6 +7,7 @@ import (
  "encoding/json"
  "errors"
  "net"
+ "net/netip"
  "os"
  "path/filepath"
  "regexp"
@@ -110,17 +111,26 @@ func project(text,home string) ([]byte,error) {
  if v,ok:=n["network"];ok&&v!="tcp"&&v!="ws"{return nil,errors.New("unsupported transport")}
  if len(raw.Rules)==0||raw.Rules[len(raw.Rules)-1]!="MATCH,REJECT"{return nil,errors.New("missing reject default")}
  for _,r:=range raw.Rules[:len(raw.Rules)-1] {
-  p:=strings.Split(r,",");if len(p)!=3||p[0]!="DOMAIN-SUFFIX"||len(p[1])>253||!domain.MatchString(p[1])||(p[2]!="DIRECT"&&p[2]!="BROWSER-PROXY"){return nil,errors.New("invalid rule")}
+  p:=strings.Split(r,",")
+  if len(p)<3||!(p[2]=="DIRECT"||p[2]=="BROWSER-PROXY"||p[2]=="REJECT"){return nil,errors.New("invalid rule")}
+  switch p[0] {
+  case "DOMAIN","DOMAIN-SUFFIX":
+   if len(p)!=3||len(p[1])>253||!domain.MatchString(p[1]){return nil,errors.New("invalid domain rule")}
+  case "IP-CIDR","IP-CIDR6":
+   prefix,err:=netip.ParsePrefix(p[1])
+   if len(p)!=4||p[3]!="no-resolve"||err!=nil||prefix.Addr().Is4In6()||(p[0]=="IP-CIDR")!=prefix.Addr().Is4(){return nil,errors.New("invalid IP rule")}
+  default:return nil,errors.New("unsupported rule")
+  }
  }
  mode:=raw.RoutingMode
  if mode=="" {mode="strict"}
- if mode!="strict"&&mode!="smart"{return nil,errors.New("unsupported routing mode")}
+ if mode!="strict"&&mode!="smart"&&mode!="global"{return nil,errors.New("unsupported routing mode")}
  rules:=raw.Rules
  providers:=map[string]any{}
- if mode=="smart" {
+ if mode=="smart"||mode=="global" {
   var err error
   providers,err=builtinProviders(home);if err!=nil{return nil,err}
-  rules=smartRules(raw.Rules[:len(raw.Rules)-1],raw.AdBlock==nil||*raw.AdBlock)
+  if mode=="smart" {rules=smartRules(raw.Rules[:len(raw.Rules)-1],raw.AdBlock==nil||*raw.AdBlock)} else {rules=globalRules(raw.Rules[:len(raw.Rules)-1],raw.AdBlock==nil||*raw.AdBlock)}
  }
  return json.Marshal(map[string]any{
   "allow-lan":false,"bind-address":"127.0.0.1","mode":"rule",
@@ -132,11 +142,11 @@ func project(text,home string) ([]byte,error) {
  })
 }
 
-type request struct { Action string; ConfigJson string; HomeDir string }
+type request struct { Action string; ConfigJson string; HomeDir string; Host string }
 func reply(v map[string]any) string { b,_:=json.Marshal(v);return string(b) }
 func failure() string {return reply(map[string]any{"ready":false,"error":"native operation failed"})}
 
-// Command is deliberately limited to start/stop; never logs input or credentials.
+// Commands expose lifecycle and read-only native route observations only.
 func Command(input string)(out string) {
  lifecycle.Lock();defer lifecycle.Unlock()
  var pending *session
@@ -144,6 +154,9 @@ func Command(input string)(out string) {
  var r request
  if json.Unmarshal([]byte(input),&r)!=nil{return failure()}
  switch r.Action {
+ case "observedRoute":
+  if active==nil{return failure()}
+  return observedRoute(r.Host)
  case "stop":
   if active!=nil {s:=active;active=nil;err:=s.close();tunnel.OnSuspend();if err!=nil{return failure()}}
   return reply(map[string]any{"stopped":true})

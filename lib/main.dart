@@ -5,6 +5,8 @@ import 'core/native_probe.dart';
 import 'core/core_adapter.dart';
 import 'core/subscription_link.dart';
 import 'core/browser.dart';
+import 'core/routing_policy.dart';
+import 'core/routing_policy_page.dart';
 
 void main() => runApp(const ClashBrowser());
 
@@ -29,11 +31,47 @@ class SubscriptionScreen extends StatefulWidget {
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
   final _yaml = TextEditingController();
   final _url = TextEditingController();
-  final _proxyDomains = TextEditingController();
-  final _directDomains = TextEditingController();
   final _core = ChannelCoreAdapter();
-  RoutingMode _routingMode = RoutingMode.smart;
-  bool _adBlock = true;
+  RoutingPolicy _policy = RoutingPolicy();
+  RoutingPolicyStore? _policyStore;
+  bool _editingPolicy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _restorePolicy();
+  }
+
+  Future<void> _restorePolicy() async {
+    final store = await RoutingPolicyStore.open();
+    final policy = await store.restore();
+    if (mounted) setState(() { _policy = policy; _policyStore = store; });
+  }
+
+  Future<void> _editPolicy() async {
+    final store = _policyStore;
+    if (store == null || _editingPolicy || _changingCore || _openingBrowser || _downloading) return;
+    setState(() => _editingPolicy = true);
+    try {
+      final next = await Navigator.push<RoutingPolicy>(context, MaterialPageRoute(
+          builder: (_) => RoutingPolicyPage(policy: _policy, store: store)));
+      if (!mounted || next == null) return;
+      final restart = _core.state == CoreState.listenerReady;
+      setState(() { _policy = next; _endpoint = null; _error = null; });
+      if (restart) {
+        await _core.stop();
+        _endpoint = await _startCore();
+      }
+    } catch (_) {
+      if (mounted) setState(() => _error = '策略已保存但代理重启失败，网页保持禁用。');
+    } finally {
+      if (mounted) setState(() => _editingPolicy = false);
+    }
+  }
+
+  Future<CoreEndpoint> _startCore() => _core.start(_profiles[_active!],
+      selectedNode: _selected!, routingMode: _policy.mode,
+      adBlock: _policy.adBlock, customRules: _policy.rules);
   bool _downloading = false;
   bool _changingCore = false;
   bool _openingBrowser = false;
@@ -43,15 +81,17 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     final endpoint = _endpoint;
     if (endpoint == null || _core.state != CoreState.listenerReady || _openingBrowser) return;
     setState(() { _openingBrowser = true; _error = null; });
+    var editRequested = false;
     try {
-      await BrowserBridge.open(context, endpoint);
+      editRequested = await BrowserBridge.open(context, endpoint, policyLabel: _policy.mode.label);
     } catch (_) {
       if (mounted) setState(() => _error = '浏览器打开失败：原生代理未就绪或不兼容。');
     } finally {
       if (mounted) setState(() => _openingBrowser = false);
     }
+    if (mounted && editRequested) await _editPolicy();
   }
-  bool get _locked => _changingCore || _core.state != CoreState.offline;
+  bool get _locked => _changingCore || _editingPolicy || _core.state != CoreState.offline;
 
   Future<void> _download() async {
     setState(() { _downloading = true; _error = null; });
@@ -69,15 +109,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     } finally { if (mounted) setState(() => _downloading = false); }
   }
 
-  List<String> _domains(String value) => value.split(RegExp(r'[,\s]+')).where((s) => s.isNotEmpty).toList();
-
   Future<void> _toggleCore() async {
     setState(() { _changingCore = true; _error = null; });
     try {
       if (_core.state == CoreState.offline) {
-        _endpoint = await _core.start(_profiles[_active!], selectedNode: _selected!,
-          routingMode: _routingMode, adBlock: _adBlock,
-          proxyDomains: _domains(_proxyDomains.text), directDomains: _domains(_directDomains.text));
+        _endpoint = await _startCore();
       } else {
         _endpoint = null;
         await _core.stop();
@@ -107,8 +143,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   void dispose() {
     _yaml.dispose();
     _url.dispose();
-    _proxyDomains.dispose();
-    _directDomains.dispose();
     super.dispose();
   }
 
@@ -142,17 +176,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   Widget build(BuildContext context) {
     final profile = _active == null ? null : _profiles[_active!];
     return Scaffold(
-      appBar: AppBar(title: const Text('ClashBrowser')),
+      appBar: AppBar(title: const Text('ClashBrowser'), actions: [
+        IconButton(tooltip: '代理策略', icon: const Icon(Icons.tune),
+          onPressed: _policyStore == null || _editingPolicy || _changingCore || _openingBrowser || _downloading ? null : _editPolicy),
+      ]),
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            if (_core.state != CoreState.listenerReady)
+            Text('当前策略：${_policy.mode.label}'),
+            if (_policyStore?.corrupt == true) const Text('策略文件损坏，已回退严格模式，请检查配置。'),
+            if (_core.state != CoreState.listenerReady || _endpoint == null)
               const Text('代理未就绪 · 浏览器网络已禁用')
             else ...[
               const Text('本地代理已启动 · 浏览器实验模式（仅 HTTPS）'),
               const Text('需真机验证代理认证及流量隔离；不要用于敏感会话。'),
-              FilledButton(onPressed: _openingBrowser || _changingCore ? null : _openBrowser,
+              FilledButton(onPressed: _openingBrowser || _changingCore || _editingPolicy ? null : _openBrowser,
                 child: const Text('打开实验浏览器')),
             ],
             OutlinedButton(
@@ -211,27 +250,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 onChanged: _locked || _downloading ? null : (name) => setState(() => _selected = name),
               ),
               OutlinedButton(onPressed: _locked || _downloading ? null : _remove, child: const Text('删除配置')),
-              SwitchListTile(
-                title: const Text('智能分流（内置 Loyalsoldier）'),
-                subtitle: Text(_routingMode == RoutingMode.smart
-                    ? '国内规则直连，未匹配走代理；暂不开放局域网'
-                    : '严格自定义：未匹配拒绝'),
-                value: _routingMode == RoutingMode.smart,
-                onChanged: _locked ? null : (value) => setState(() {
-                  _routingMode = value ? RoutingMode.smart : RoutingMode.strict;
-                }),
-              ),
-              SwitchListTile(
-                title: const Text('内置广告拦截'),
-                value: _adBlock,
-                onChanged: _locked || _routingMode != RoutingMode.smart
-                    ? null : (value) => setState(() => _adBlock = value),
-              ),
-              TextField(controller: _proxyDomains, enabled: !_locked,
-                decoration: const InputDecoration(labelText: '代理域名（逗号分隔）')),
-              TextField(controller: _directDomains, enabled: !_locked,
-                decoration: const InputDecoration(labelText: '直连域名（逗号分隔）')),
-              FilledButton(onPressed: _changingCore || _downloading || _openingBrowser ? null : _toggleCore,
+              FilledButton(onPressed: _policyStore == null || _editingPolicy || _changingCore || _downloading || _openingBrowser ? null : _toggleCore,
                 child: Text(_core.state == CoreState.offline ? '启动本地代理' : '停止本地代理')),
             ],
           ],
