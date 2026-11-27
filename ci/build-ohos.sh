@@ -21,7 +21,10 @@ grep -Eq '"compileSdkVersion"\s*:\s*"26\.0\.0"' "$profile"
 perl -0pi -e 's/("bundleName"\s*:\s*")[^"]*(")/$1io.github.noregretl.clashbrowser$2/' ohos/AppScope/app.json5
 grep -F '"io.github.noregretl.clashbrowser"' ohos/AppScope/app.json5
 
+rm -f analysis_options.yaml
 flutter pub get
+flutter analyze lib test
+flutter test
 flutter build hap --debug --no-codesign --target-platform=ohos-arm64
 
 # The upstream Flutter tool copies the unsigned package here on success.

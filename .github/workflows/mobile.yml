@@ -38,8 +38,8 @@ jobs:
         run: |
           flutter create --no-pub --project-name clashbrowser --org io.github.noregretl --platforms=${{ matrix.platform }} "$RUNNER_TEMP/clashbrowser"
           cp pubspec.yaml "$RUNNER_TEMP/clashbrowser/"
-          cp lib/main.dart "$RUNNER_TEMP/clashbrowser/lib/"
-          cp test/widget_test.dart "$RUNNER_TEMP/clashbrowser/test/"
+          cp -R lib/. "$RUNNER_TEMP/clashbrowser/lib/"
+          cp -R test/. "$RUNNER_TEMP/clashbrowser/test/"
           rm -f "$RUNNER_TEMP/clashbrowser/analysis_options.yaml"
       - name: Analyze and test
         working-directory: ${{ runner.temp }}/clashbrowser
