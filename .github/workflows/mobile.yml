@@ -35,6 +35,7 @@ jobs:
         run: |
           flutter create --no-pub --project-name clashbrowser --org io.github.noregretl --platforms=${{ matrix.platform }} "$RUNNER_TEMP/clashbrowser"
           cp pubspec.yaml "$RUNNER_TEMP/clashbrowser/"
+          cp -R assets "$RUNNER_TEMP/clashbrowser/"
           cp -R lib/. "$RUNNER_TEMP/clashbrowser/lib/"
           cp -R test/. "$RUNNER_TEMP/clashbrowser/test/"
           rm -f "$RUNNER_TEMP/clashbrowser/analysis_options.yaml"

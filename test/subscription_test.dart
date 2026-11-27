@@ -35,6 +35,17 @@ void main() {
     expect(c['rules'], ['DOMAIN-SUFFIX,local.example,DIRECT',
       'DOMAIN-SUFFIX,example.com,BROWSER-PROXY', 'MATCH,REJECT']);
   });
+  test('smart mode is explicit and never imports remote providers', () {
+    final p = SubscriptionProfile.parse(fixture);
+    final c = jsonDecode(p.buildConfig(selectedNode: 'Test',
+      routingMode: RoutingMode.smart, adBlock: false,
+      proxyDomains: ['example.com'])) as Map;
+    expect(c['routingMode'], 'smart');
+    expect(c['adBlock'], false);
+    expect(c['rules'], ['DOMAIN-SUFFIX,example.com,BROWSER-PROXY', 'MATCH,REJECT']);
+    expect(c.containsKey('rule-providers'), false);
+    expect(c['allow-lan'], false);
+  });
   test('rejects duplicate names, unsupported options and insecure TLS', () {
     for (final text in [
       'proxies: [{name: DIRECT, type: http, server: x, port: 80}]',

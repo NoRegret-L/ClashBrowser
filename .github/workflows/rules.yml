@@ -1,0 +1,43 @@
+name: Built-in MRS snapshot
+on:
+  pull_request:
+    paths: ['rules/**', 'ci/build-rules.py', '.github/workflows/rules.yml']
+  push:
+    branches: [main]
+    paths: ['rules/**', 'ci/build-rules.py', '.github/workflows/rules.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ProjectClash/Clash
+          ref: 58cf851790d43c2a14398e0ff0122f56b2299709
+          path: vendor/apple
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vendor/apple/bind/clash/go.mod
+          cache-dependency-path: vendor/apple/go.sum
+      - name: Build pinned converter
+        working-directory: vendor/apple
+        run: CGO_ENABLED=0 go build -tags no_tailscale,no_easytier -trimpath -o "$RUNNER_TEMP/mihomo-host" .
+      - run: python3 ci/build-rules.py "$RUNNER_TEMP/mihomo-host" dist/rule-bundle
+      - name: Validate snapshot in actual adapter
+        run: |
+          bash ci/install-loopback.sh host
+          cd vendor/apple
+          CLASHBROWSER_RULE_BUNDLE="$GITHUB_WORKSPACE/dist/rule-bundle/assets/rules" go test -tags no_tailscale,no_easytier ./browserloop -run 'TestBuiltinSnapshot|TestSmartRuleOrder' -count=1 -v
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clashbrowser-builtin-rules
+          path: dist/rule-bundle/
+          retention-days: 7
+          if-no-files-found: error

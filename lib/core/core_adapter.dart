@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'native_loopback.dart';
 
 import 'subscription.dart';
+import 'builtin_rules.dart';
 
 enum CoreState { offline, starting, listenerReady, stopping, failed }
 
@@ -19,6 +20,8 @@ abstract interface class CoreAdapter {
   CoreState get state;
   Future<CoreEndpoint> start(SubscriptionProfile profile, {
     required String selectedNode,
+    RoutingMode routingMode = RoutingMode.strict,
+    bool adBlock = true,
     Iterable<String> proxyDomains = const [],
     Iterable<String> directDomains = const [],
   });
@@ -35,9 +38,10 @@ class ChannelCoreAdapter implements CoreAdapter {
   bool get _native => _channel == null && NativeLoopback.supported;
   MethodChannel get _testChannel => _channel ?? const MethodChannel('clashbrowser/core/v1');
 
-  Future<Map<String, dynamic>?> _start(String config) async {
+  Future<Map<String, dynamic>?> _start(String config, RoutingMode routingMode) async {
     if (!_native) return _testChannel.invokeMapMethod<String, dynamic>('startLoopback', {'configJson': config});
     _home = await Directory.systemTemp.createTemp('clashbrowser-core-');
+    if (routingMode == RoutingMode.smart) await BuiltinRules.stage(_home!);
     return NativeLoopback.command({'action': 'start', 'configJson': config, 'homeDir': _home!.path});
   }
 
@@ -59,6 +63,8 @@ class ChannelCoreAdapter implements CoreAdapter {
   @override
   Future<CoreEndpoint> start(SubscriptionProfile profile, {
     required String selectedNode,
+    RoutingMode routingMode = RoutingMode.strict,
+    bool adBlock = true,
     Iterable<String> proxyDomains = const [],
     Iterable<String> directDomains = const [],
   }) async {
@@ -67,12 +73,14 @@ class ChannelCoreAdapter implements CoreAdapter {
     }
     final config = profile.buildConfig(
       selectedNode: selectedNode,
+      routingMode: routingMode,
+      adBlock: adBlock,
       proxyDomains: proxyDomains,
       directDomains: directDomains,
     );
     _state = CoreState.starting;
     try {
-      final response = await _start(config);
+      final response = await _start(config, routingMode);
       final port = response?['port'];
       if (response?['host'] != '127.0.0.1' ||
           response?['ready'] != true ||

@@ -32,6 +32,8 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   final _proxyDomains = TextEditingController();
   final _directDomains = TextEditingController();
   final _core = ChannelCoreAdapter();
+  RoutingMode _routingMode = RoutingMode.smart;
+  bool _adBlock = true;
   bool _downloading = false;
   bool _changingCore = false;
   bool _openingBrowser = false;
@@ -74,6 +76,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     try {
       if (_core.state == CoreState.offline) {
         _endpoint = await _core.start(_profiles[_active!], selectedNode: _selected!,
+          routingMode: _routingMode, adBlock: _adBlock,
           proxyDomains: _domains(_proxyDomains.text), directDomains: _domains(_directDomains.text));
       } else {
         _endpoint = null;
@@ -147,7 +150,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             if (_core.state != CoreState.listenerReady)
               const Text('代理未就绪 · 浏览器网络已禁用')
             else ...[
-              const Text('本地代理已启动 · 浏览器实验模式（仅 HTTPS，JavaScript 关闭）'),
+              const Text('本地代理已启动 · 浏览器实验模式（仅 HTTPS）'),
               const Text('需真机验证代理认证及流量隔离；不要用于敏感会话。'),
               FilledButton(onPressed: _openingBrowser || _changingCore ? null : _openBrowser,
                 child: const Text('打开实验浏览器')),
@@ -195,7 +198,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               ),
               Text('已导入 ${profile.nodeNames.length} 个节点'),
               if (profile.ignoredSections.isNotEmpty)
-                const Text('已忽略原订阅的非节点设置；不会自动启用任何规则。'),
+                const Text('已忽略原订阅的非节点设置；使用应用内置规则。'),
               DropdownButton<String>(
                 key: const Key('node-select'),
                 value: _selected,
@@ -208,6 +211,22 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 onChanged: _locked || _downloading ? null : (name) => setState(() => _selected = name),
               ),
               OutlinedButton(onPressed: _locked || _downloading ? null : _remove, child: const Text('删除配置')),
+              SwitchListTile(
+                title: const Text('智能分流（内置 Loyalsoldier）'),
+                subtitle: Text(_routingMode == RoutingMode.smart
+                    ? '国内规则直连，未匹配走代理；暂不开放局域网'
+                    : '严格自定义：未匹配拒绝'),
+                value: _routingMode == RoutingMode.smart,
+                onChanged: _locked ? null : (value) => setState(() {
+                  _routingMode = value ? RoutingMode.smart : RoutingMode.strict;
+                }),
+              ),
+              SwitchListTile(
+                title: const Text('内置广告拦截'),
+                value: _adBlock,
+                onChanged: _locked || _routingMode != RoutingMode.smart
+                    ? null : (value) => setState(() => _adBlock = value),
+              ),
               TextField(controller: _proxyDomains, enabled: !_locked,
                 decoration: const InputDecoration(labelText: '代理域名（逗号分隔）')),
               TextField(controller: _directDomains, enabled: !_locked,

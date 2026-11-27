@@ -10,3 +10,8 @@ build/
 *.keystore
 *.mobileprovision
 .env
+
+# Build-time local rule assets; regenerated from pinned snapshot.
+assets/rules/*.mrs
+assets/rules/manifest.json
+assets/rules/LICENSE-Loyalsoldier.txt

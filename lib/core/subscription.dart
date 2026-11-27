@@ -4,6 +4,8 @@ import 'package:yaml/yaml.dart';
 
 /// Import only a deliberately supported subset of Clash nodes.
 /// The source document is never sent to the native core.
+enum RoutingMode { strict, smart }
+
 class SubscriptionProfile {
   SubscriptionProfile._(this._nodes, this.ignoredSections);
 
@@ -163,9 +165,12 @@ class SubscriptionProfile {
   }
 
   /// Native code must allocate the loopback port and revalidate before start.
-  /// Only explicitly listed suffixes are routed. All other traffic is rejected.
+  /// Native smart mode adds only trusted built-in providers. The explicit
+  /// strict mode retains the original fail-closed rule projection.
   String buildConfig({
     required String selectedNode,
+    RoutingMode routingMode = RoutingMode.strict,
+    bool adBlock = true,
     Iterable<String> proxyDomains = const [],
     Iterable<String> directDomains = const [],
   }) {
@@ -183,6 +188,8 @@ class SubscriptionProfile {
       }
     }
     return jsonEncode({
+      'routingMode': routingMode.name,
+      'adBlock': adBlock,
       'allow-lan': false,
       'bind-address': '127.0.0.1',
       'mode': 'rule',

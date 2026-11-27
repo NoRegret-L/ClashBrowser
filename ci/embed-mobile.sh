@@ -12,6 +12,7 @@ else
 fi
 flutter create --no-pub --project-name clashbrowser --org io.github.noregretl --platforms="$platform" "$project"
 cp pubspec.yaml "$project/"
+cp -R assets "$project/"
 cp -R lib/. "$project/lib/"
 cp -R test/. "$project/test/"
 rm -f "$project/analysis_options.yaml"

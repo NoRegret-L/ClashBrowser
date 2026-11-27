@@ -9,11 +9,12 @@ case "$platform" in
  *) exit 2 ;;
 esac
 mkdir -p "$module/browserloop"
-for f in loopback.go loopback_test.go; do
+for source in core/loopback/*.go; do
+ f="$(basename "$source")"
  if [[ "$platform" == ios || "$platform" == host ]]; then
-  sed 's@github.com/metacubex/mihomo@github.com/ProjectClash/Clash@g' "core/loopback/$f" > "$module/browserloop/$f"
+  sed 's@github.com/metacubex/mihomo@github.com/ProjectClash/Clash@g' "$source" > "$module/browserloop/$f"
  else
-  cp "core/loopback/$f" "$module/browserloop/"
+  cp "$source" "$module/browserloop/"
  fi
 done
 if [[ "$platform" == android || "$platform" == harmonyos ]]; then

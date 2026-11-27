@@ -38,6 +38,7 @@ type session struct {
  mu sync.Mutex
  closed bool
  clients map[*tracked]struct{}
+ providers []func() error
 }
 type tracked struct { net.Conn; owner *session; once sync.Once }
 func (c *tracked) Close() error {
@@ -64,15 +65,17 @@ func (s *session) close() error {
  clients:=make([]*tracked,0,len(s.clients))
  for c:=range s.clients {clients=append(clients,c)}
  s.mu.Unlock()
- err:=s.listener.Close()
+ var err error
+ if s.listener!=nil {err=s.listener.Close()}
  for _,c:=range clients {c.Close()}
+ for _,closeProvider:=range s.providers {if e:=closeProvider();e!=nil&&err==nil{err=e}}
  return err
 }
 
 // Rebuild the configuration at the native trust boundary. No arbitrary top-level
-// settings or custom listeners, script, provider, interface or dialer options.
-func project(text string) ([]byte,error) {
- var raw struct { Proxies []map[string]any; Rules []string }
+// settings or custom listeners, scripts, arbitrary providers, interface or dialer options.
+func project(text,home string) ([]byte,error) {
+ var raw struct { Proxies []map[string]any; Rules []string; RoutingMode string; AdBlock *bool }
  if json.Unmarshal([]byte(text),&raw)!=nil || len(raw.Proxies)!=1 {return nil,errors.New("invalid projection")}
  n:=raw.Proxies[0]
  name,ok:=n["name"].(string)
@@ -109,13 +112,23 @@ func project(text string) ([]byte,error) {
  for _,r:=range raw.Rules[:len(raw.Rules)-1] {
   p:=strings.Split(r,",");if len(p)!=3||p[0]!="DOMAIN-SUFFIX"||len(p[1])>253||!domain.MatchString(p[1])||(p[2]!="DIRECT"&&p[2]!="BROWSER-PROXY"){return nil,errors.New("invalid rule")}
  }
+ mode:=raw.RoutingMode
+ if mode=="" {mode="strict"}
+ if mode!="strict"&&mode!="smart"{return nil,errors.New("unsupported routing mode")}
+ rules:=raw.Rules
+ providers:=map[string]any{}
+ if mode=="smart" {
+  var err error
+  providers,err=builtinProviders(home);if err!=nil{return nil,err}
+  rules=smartRules(raw.Rules[:len(raw.Rules)-1],raw.AdBlock==nil||*raw.AdBlock)
+ }
  return json.Marshal(map[string]any{
   "allow-lan":false,"bind-address":"127.0.0.1","mode":"rule",
   "log-level":"silent","find-process-mode":"off","tun":map[string]any{"enable":false,"auto-route":false,"auto-redirect":false},
   "dns":map[string]any{"enable":false},"geo-auto-update":false,
   "profile":map[string]any{"store-selected":false,"store-fake-ip":false},
   "proxies":[]any{n},"proxy-groups":[]any{map[string]any{"name":"BROWSER-PROXY","type":"select","proxies":[]string{name}}},
-  "rules":raw.Rules,
+  "rules":rules,"rule-providers":providers,
  })
 }
 
@@ -136,18 +149,27 @@ func Command(input string)(out string) {
   return reply(map[string]any{"stopped":true})
  case "start":
   if active!=nil || !filepath.IsAbs(r.HomeDir){return failure()}
-  cfgBytes,err:=project(r.ConfigJson);if err!=nil{return failure()}
+  cfgBytes,err:=project(r.ConfigJson,r.HomeDir);if err!=nil{return failure()}
   if err=os.MkdirAll(r.HomeDir,0700);err!=nil{return failure()}
   C.SetHomeDir(r.HomeDir)
   cfg,err:=executor.ParseWithBytes(cfgBytes);if err!=nil||cfg.General.Tun.Enable{return failure()}
   secret:=make([]byte,32);if _,err=rand.Read(secret);err!=nil{return failure()}
   password:=hex.EncodeToString(secret)
-  listener,err:=net.Listen("tcp4","127.0.0.1:0");if err!=nil{return failure()}
-  pending=&session{listener:listener,clients:map[*tracked]struct{}{}}
-  _,portText,err:=net.SplitHostPort(listener.Addr().String());if err!=nil{pending.close();return failure()}
-  port,err:=strconv.Atoi(portText);if err!=nil{pending.close();return failure()}
-  // No imported listening ports, TUN, external controller, or VPN setup.
+  pending=&session{clients:map[*tracked]struct{}{}}
+  for _,p:=range cfg.RuleProviders {
+   if c,ok:=p.(interface{Close() error});ok {pending.providers=append(pending.providers,c.Close)}
+  }
+  // ApplyConfig can log provider load errors without returning them. Inspect
+  // the actual loaded provider counts before opening the authenticated socket.
   executor.ApplyConfig(cfg,true)
+  for _,p:=range cfg.RuleProviders {
+   if p.Count()<=0 {pending.close();pending=nil;tunnel.OnSuspend();return failure()}
+  }
+  listener,err:=net.Listen("tcp4","127.0.0.1:0");if err!=nil{pending.close();pending=nil;tunnel.OnSuspend();return failure()}
+  pending.listener=listener
+  _,portText,err:=net.SplitHostPort(listener.Addr().String());if err!=nil{pending.close();pending=nil;tunnel.OnSuspend();return failure()}
+  port,err:=strconv.Atoi(portText);if err!=nil{pending.close();pending=nil;tunnel.OnSuspend();return failure()}
+  // No imported listening ports, TUN, external controller, or VPN setup.
   store:=authstore.NewAuthStore(auth.NewAuthenticator([]auth.AuthUser{{User:"browser",Pass:password}}))
   active=pending;pending=nil
   go active.serve(store)

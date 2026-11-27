@@ -52,16 +52,24 @@ jobs:
         with:
           go-version-file: vendor/apple/bind/clash/go.mod
           cache-dependency-path: vendor/apple/go.sum
-      - name: Test dedicated authenticated loopback adapter
-        run: |
-          bash ci/install-loopback.sh host
-          cd vendor/apple
-          go test -tags no_tailscale,no_easytier ./browserloop -count=1 -v
       - name: Build host Mihomo derivative
         working-directory: vendor/apple
         run: CGO_ENABLED=0 go build -tags no_tailscale,no_easytier -trimpath -o "$RUNNER_TEMP/mihomo-host" .
+      - name: Generate pinned MRS bundle
+        run: python3 ci/build-rules.py "$RUNNER_TEMP/mihomo-host" dist/rule-bundle
+      - name: Test authenticated loopback and bundled rule projection
+        run: |
+          bash ci/install-loopback.sh host
+          cd vendor/apple
+          CLASHBROWSER_RULE_BUNDLE="$GITHUB_WORKSPACE/dist/rule-bundle/assets/rules" go test -tags no_tailscale,no_easytier ./browserloop -count=1 -v
       - name: Exercise real HTTP and CONNECT routing
         run: python3 ci/core-smoke.py "$RUNNER_TEMP/mihomo-host"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clashbrowser-builtin-rules
+          path: dist/rule-bundle/
+          retention-days: 7
+          if-no-files-found: error
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -358,6 +366,14 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: sdk-input
+      - uses: actions/download-artifact@v4
+        with:
+          name: clashbrowser-builtin-rules
+          path: rule-input
+      - name: Stage verified build-time rule snapshot
+        run: |
+          test -s rule-input/assets/rules/manifest.json
+          cp -R rule-input/assets/rules/. assets/rules/
       - uses: actions/setup-java@v4
         if: matrix.platform == 'android'
         with:
@@ -405,9 +421,56 @@ jobs:
         run: |
           cp sdk-input/LICENSE sdk-input/upstreams.json sdk-input/SHA256SUMS dist/native-app/
           cp sdk-input/upstream-source.tar.gz sdk-input/clashbrowser-loopback-source.tar.gz dist/native-app/
+          cp rule-input/loyalsoldier-source.tar.gz rule-input/snapshot.json dist/native-app/
+          cp -R rule-input/assets/rules dist/native-app/builtin-rules
       - uses: actions/upload-artifact@v4
         with:
           name: clashbrowser-native-probe-${{ matrix.platform }}
           path: dist/native-app/
           retention-days: 7
           if-no-files-found: error
+
+  android-emulator:
+    needs: [android, host-routing]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: mihomo-android-sdk-experimental
+          path: sdk-input
+      - uses: actions/download-artifact@v4
+        with:
+          name: clashbrowser-builtin-rules
+          path: rule-input
+      - name: Stage bundled rules
+        run: cp -R rule-input/assets/rules/. assets/rules/
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          cache-read-only: false
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: ReactiveCircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash ci/android-device-test.sh "$RUNNER_TEMP/clashbrowser-device" "$GITHUB_WORKSPACE/sdk-input"
