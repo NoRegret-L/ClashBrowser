@@ -15,7 +15,15 @@
     if (![call.method isEqualToString:@"open"] || ![call.arguments isKindOfClass:NSDictionary.class]) { result(FlutterMethodNotImplemented); return; }
     NSDictionary *args = call.arguments;
     NSNumber *port = args[@"port"]; NSString *user = args[@"username"]; NSString *pass = args[@"password"];
-    UIViewController *host = registrar.viewController;
+    UIViewController *host = nil;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+      if (scene.activationState != UISceneActivationStateForegroundActive ||
+          ![scene isKindOfClass:UIWindowScene.class]) continue;
+      for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+        if (window.isKeyWindow) { host = window.rootViewController; break; }
+      }
+      if (host) break;
+    }
     if (![port isKindOfClass:NSNumber.class] || port.integerValue < 1 || port.integerValue > 65535 ||
         ![user isKindOfClass:NSString.class] || ![user isEqualToString:@"browser"] ||
         ![pass isKindOfClass:NSString.class] || !pass.length || !host || host.presentedViewController) {

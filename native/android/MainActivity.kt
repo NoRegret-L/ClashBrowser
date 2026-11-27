@@ -2,7 +2,6 @@ package io.github.noregretl.clashbrowser
 
 import android.app.Dialog
 import android.net.Uri
-import android.os.Bundle
 import android.view.ViewGroup
 import android.webkit.*
 import android.widget.*
@@ -45,7 +44,7 @@ class MainActivity : FlutterActivity() {
         browser = dialog
         val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val address = EditText(this).apply { singleLine(); hint = "https://example.com" }
+        val address = EditText(this).apply { setSingleLine(true); hint = "https://example.com" }
         val go = Button(this).apply { text = "打开"; isEnabled = false }
         val close = Button(this).apply { text = "关闭" }
         val status = TextView(this).apply { text = "正在配置应用内代理…"; }
