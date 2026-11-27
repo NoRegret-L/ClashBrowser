@@ -4,6 +4,8 @@ on:
     paths:
       - 'integration_test/**'
       - 'ci/android-device-test.sh'
+      - 'ci/https-fixture.py'
+      - 'native/android/**'
       - '.github/workflows/device-auth.yml'
   workflow_dispatch:
     inputs:
