@@ -11,6 +11,8 @@ Pod::Spec.new do |s|
   s.public_header_files = 'Classes/**/*.h'
   s.dependency 'Flutter'
   s.platform = :ios, '17.0'
+  # Upstream static SDK requires the Apple DNS resolver library.
+  s.libraries = 'resolv'
   s.static_framework = true
   s.vendored_frameworks = 'Frameworks/Clash.xcframework'
 end
