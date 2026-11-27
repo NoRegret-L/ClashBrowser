@@ -26,6 +26,9 @@ s=p.read_text()
 p.write_text(s.replace('<application', '<uses-permission android:name="android.permission.INTERNET"/>\n    <application',1))
 PY
   fi
+  # Inject only into the embedded app; no VPN service or global proxy.
+  cp native/android/MainActivity.kt "$project/android/app/src/main/kotlin/io/github/noregretl/clashbrowser/MainActivity.kt"
+  printf '\ndependencies { implementation("androidx.webkit:webkit:1.14.0") }\n' >> "$project/android/app/build.gradle.kts"
   libs="$project/android/app/src/main/jniLibs"
   mkdir -p "$libs"
   python3 - "$sdk" "$libs" <<'PY'

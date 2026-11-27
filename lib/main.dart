@@ -4,6 +4,7 @@ import 'core/subscription.dart';
 import 'core/native_probe.dart';
 import 'core/core_adapter.dart';
 import 'core/subscription_link.dart';
+import 'core/browser.dart';
 
 void main() => runApp(const ClashBrowser());
 
@@ -33,6 +34,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   final _core = ChannelCoreAdapter();
   bool _downloading = false;
   bool _changingCore = false;
+  bool _openingBrowser = false;
+  CoreEndpoint? _endpoint;
+
+  Future<void> _openBrowser() async {
+    final endpoint = _endpoint;
+    if (endpoint == null || _core.state != CoreState.listenerReady || _openingBrowser) return;
+    setState(() { _openingBrowser = true; _error = null; });
+    try {
+      await BrowserBridge.open(endpoint);
+    } catch (_) {
+      if (mounted) setState(() => _error = '浏览器打开失败：原生代理未就绪或不兼容。');
+    } finally {
+      if (mounted) setState(() => _openingBrowser = false);
+    }
+  }
   bool get _locked => _changingCore || _core.state != CoreState.offline;
 
   Future<void> _download() async {
@@ -57,9 +73,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     setState(() { _changingCore = true; _error = null; });
     try {
       if (_core.state == CoreState.offline) {
-        await _core.start(_profiles[_active!], selectedNode: _selected!,
+        _endpoint = await _core.start(_profiles[_active!], selectedNode: _selected!,
           proxyDomains: _domains(_proxyDomains.text), directDomains: _domains(_directDomains.text));
       } else {
+        _endpoint = null;
         await _core.stop();
       }
     } catch (_) {
@@ -127,7 +144,14 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const Text('代理未就绪 · 浏览器网络已禁用'),
+            if (_core.state != CoreState.listenerReady)
+              const Text('代理未就绪 · 浏览器网络已禁用')
+            else ...[
+              const Text('本地代理已启动 · 浏览器实验模式（仅 HTTPS，JavaScript 关闭）'),
+              const Text('需真机验证代理认证及流量隔离；不要用于敏感会话。'),
+              FilledButton(onPressed: _openingBrowser || _changingCore ? null : _openBrowser,
+                child: const Text('打开实验浏览器')),
+            ],
             OutlinedButton(
               onPressed: _probing ? null : _probe,
               child: const Text('检查原生内核'),
@@ -141,8 +165,6 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
               decoration: const InputDecoration(labelText: 'Clash HTTPS 订阅链接')),
             FilledButton(onPressed: _locked || _downloading ? null : _download,
               child: Text(_downloading ? '下载中' : '从链接导入')),
-            if (_core.state == CoreState.listenerReady)
-              const Text('本地代理监听已就绪 · 网页仍禁用，等待浏览器代理接入。'),
             TextField(
               key: const Key('yaml-input'),
               controller: _yaml,
@@ -190,7 +212,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 decoration: const InputDecoration(labelText: '代理域名（逗号分隔）')),
               TextField(controller: _directDomains, enabled: !_locked,
                 decoration: const InputDecoration(labelText: '直连域名（逗号分隔）')),
-              FilledButton(onPressed: _changingCore || _downloading ? null : _toggleCore,
+              FilledButton(onPressed: _changingCore || _downloading || _openingBrowser ? null : _toggleCore,
                 child: Text(_core.state == CoreState.offline ? '启动本地代理' : '停止本地代理')),
             ],
           ],

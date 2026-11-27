@@ -13,6 +13,7 @@ Pod::Spec.new do |s|
   s.platform = :ios, '17.0'
   # Upstream static SDK requires the Apple DNS resolver library.
   s.libraries = 'resolv'
+  s.frameworks = 'WebKit', 'Network'
   s.static_framework = true
   s.vendored_frameworks = 'Frameworks/Clash.xcframework'
 end

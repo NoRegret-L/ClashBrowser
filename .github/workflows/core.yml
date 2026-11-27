@@ -18,12 +18,20 @@ on:
       - 'core/**'
       - 'ci/core-smoke.py'
       - '.github/workflows/core.yml'
+      - 'ci/embed-mobile.sh'
+      - 'ci/install-loopback.sh'
+      - 'ci/build-ohos.sh'
+      - 'lib/**'
+      - 'test/**'
+      - 'native/**'
+      - 'pubspec.yaml'
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 concurrency:
   group: core-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 jobs:
   host-routing:
     runs-on: ubuntu-latest
@@ -59,24 +67,35 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: dist/android
+          key: native-sdk-v1-android-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('core/**', 'ci/install-loopback.sh', '.github/workflows/core.yml') }}
       - uses: actions/checkout@v4
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         with:
           repository: oviron/libmihomo-android
           ref: 1fc10afa1fcd545ee8ddcfbd82b8dbdc7f34e0e6
           path: vendor/android
           persist-credentials: false
       - uses: actions/setup-go@v5
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         with:
           go-version: '1.27.4'
           cache-dependency-path: vendor/android/src/main/jni/core/go.sum
       - uses: actions/setup-java@v4
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         with:
           distribution: temurin
           java-version: '17'
       - name: Install pinned Android NDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.0.13004108" "cmake;3.22.1" "platforms;android-36"'
       - run: bash ci/install-loopback.sh android
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
       - name: Build JNI core and upstream host tests
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         working-directory: vendor/android
         run: |
           (cd src/main/jni/core && go test ./dnsquery/ ./selection/ ./grouptest/)
@@ -84,6 +103,7 @@ jobs:
           bash scripts/check-jni-exports.sh
           bash gradlew :assembleRelease --no-daemon
       - name: Verify AAR and package sources
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p dist/android
           cp vendor/android/build/outputs/aar/*-release.aar dist/android/
@@ -98,6 +118,11 @@ jobs:
           cp core/upstreams.json dist/android/
           tar -czf dist/android/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
           (cd dist/android && sha256sum *.aar upstream-source.tar.gz > SHA256SUMS)
+      - name: Verify cached or newly built SDK
+        run: |
+          cd dist/android
+          sha256sum -c SHA256SUMS
+          test -s clashbrowser-loopback-source.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: mihomo-android-sdk-experimental
@@ -111,7 +136,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: dist/ios
+          key: native-sdk-v1-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('core/**', 'ci/install-loopback.sh', '.github/workflows/core.yml') }}
       - uses: actions/checkout@v4
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         with:
           repository: ProjectClash/Clash
           ref: 58cf851790d43c2a14398e0ff0122f56b2299709
@@ -119,10 +150,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-go@v5
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         with:
           go-version: '1.26.11'
           cache-dependency-path: vendor/apple/bind/clash/go.sum
       - name: Verify standalone Apple Go toolchain
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         working-directory: vendor/apple/bind/clash
         run: |
           test "$(go env GOVERSION)" = go1.26.11
@@ -130,7 +163,9 @@ jobs:
             "$(go env GOMODCACHE)/"*) echo 'GOROOT must not be under GOMODCACHE'; exit 1 ;;
           esac
       - run: bash ci/install-loopback.sh ios
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
       - name: Build iOS SDK only
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         working-directory: vendor/apple
         run: |
           git describe --tags --abbrev=0 --match 'v*' || git tag v0.0.0-clash.0
@@ -141,6 +176,7 @@ jobs:
           test -d Clash.xcframework/ios-arm64
           test -d Clash.xcframework/ios-arm64_x86_64-simulator
       - name: Package SDK and sources
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p dist/ios
           ditto -c -k --keepParent vendor/apple/Clash.xcframework dist/ios/Clash.xcframework.zip
@@ -149,6 +185,11 @@ jobs:
           cp core/upstreams.json dist/ios/
           tar -czf dist/ios/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
           (cd dist/ios && shasum -a 256 Clash.xcframework.zip upstream-source.tar.gz > SHA256SUMS)
+      - name: Verify cached or newly built SDK
+        run: |
+          cd dist/ios
+          shasum -a 256 -c SHA256SUMS
+          test -s clashbrowser-loopback-source.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: mihomo-ios-sdk-experimental
@@ -162,27 +203,38 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: dist/harmonyos
+          key: native-sdk-v1-harmonyos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('core/**', 'ci/install-loopback.sh', '.github/workflows/core.yml') }}
       - uses: actions/checkout@v4
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         with:
           repository: VOD-Studio/ArkClash
           ref: db87381185aa1e49c7913a1f62171ed3ea61a662
           path: vendor/arkclash
           persist-credentials: false
       - uses: actions/setup-go@v5
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         with:
           go-version-file: vendor/arkclash/.go-version
           cache-dependency-path: vendor/arkclash/core/go.sum
       - name: Fetch upstream OpenHarmony NDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         working-directory: vendor/arkclash
         run: bash scripts/ci/fetch-ohos-ndk.sh 7.0-Release ohos-sdk/linux/native-linux-x64-26.0.0.38-Beta.zip "$RUNNER_TEMP/ohos-ndk"
       - run: bash ci/install-loopback.sh harmonyos
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
       - name: Cross compile ARM64 core with upstream TLS patches
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         working-directory: vendor/arkclash
         run: |
           OHOS_SDK="$RUNNER_TEMP/ohos-ndk" ABI=arm64-v8a bash scripts/build-core.sh
           test -s entry/libs/arm64-v8a/libclash.so
           "$RUNNER_TEMP/ohos-ndk/native/llvm/bin/llvm-readelf" -h entry/libs/arm64-v8a/libclash.so
       - name: Package native library and sources
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
         run: |
           mkdir -p dist/harmonyos
           cp vendor/arkclash/entry/libs/arm64-v8a/libclash.so dist/harmonyos/
@@ -191,6 +243,11 @@ jobs:
           cp core/upstreams.json dist/harmonyos/
           tar -czf dist/harmonyos/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
           (cd dist/harmonyos && sha256sum libclash.so upstream-source.tar.gz > SHA256SUMS)
+      - name: Verify cached or newly built SDK
+        run: |
+          cd dist/harmonyos
+          sha256sum -c SHA256SUMS
+          test -s clashbrowser-loopback-source.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: mihomo-harmonyos-sdk-experimental
@@ -234,16 +291,26 @@ jobs:
         with:
           flutter-version: '3.35.7'
           channel: stable
+          cache: true
       - name: Verify SDK and build Android or iOS app
         if: matrix.platform != 'harmonyos'
         run: bash ci/embed-mobile.sh "${{ matrix.platform }}" "$GITHUB_WORKSPACE/sdk-input" "$RUNNER_TEMP/clashbrowser-native"
-      - name: Build pinned HarmonyOS SDK image
+      - name: Fetch pinned HarmonyOS SDK builder
         if: matrix.platform == 'harmonyos'
         run: |
           git init "$RUNNER_TEMP/ohos-builder"
           git -C "$RUNNER_TEMP/ohos-builder" fetch --depth=1 https://github.com/zhongdaiqi/flutter-ohos-builder.git 5479a5b90e78794a2d04294ca0f14788911678e0
           git -C "$RUNNER_TEMP/ohos-builder" checkout --detach FETCH_HEAD
-          docker build -t clashbrowser-ohos-ci "$RUNNER_TEMP/ohos-builder"
+      - uses: docker/setup-buildx-action@v3
+        if: matrix.platform == 'harmonyos'
+      - uses: docker/build-push-action@v6
+        if: matrix.platform == 'harmonyos'
+        with:
+          context: ${{ runner.temp }}/ohos-builder
+          tags: clashbrowser-ohos-ci
+          load: true
+          cache-from: type=gha,scope=ohos-sdk-5479a5b
+          cache-to: type=gha,mode=min,scope=ohos-sdk-5479a5b,ignore-error=true
       - name: Build HAP with native library
         if: matrix.platform == 'harmonyos'
         run: |
