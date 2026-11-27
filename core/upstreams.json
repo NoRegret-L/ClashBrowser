@@ -1,0 +1,19 @@
+{
+  "base_mihomo_version": "v1.19.34",
+  "android": {
+    "repository": "oviron/libmihomo-android",
+    "revision": "1fc10afa1fcd545ee8ddcfbd82b8dbdc7f34e0e6",
+    "license": "GPL-3.0"
+  },
+  "ios": {
+    "repository": "ProjectClash/Clash",
+    "revision": "58cf851790d43c2a14398e0ff0122f56b2299709",
+    "license": "GPL-3.0",
+    "gomobile": "v0.1.13"
+  },
+  "harmonyos": {
+    "repository": "VOD-Studio/ArkClash",
+    "revision": "db87381185aa1e49c7913a1f62171ed3ea61a662",
+    "license": "GPL-3.0"
+  }
+}

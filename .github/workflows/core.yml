@@ -1,0 +1,174 @@
+name: Mihomo native SDK
+on:
+  pull_request:
+    paths:
+      - 'core/**'
+      - 'ci/core-smoke.py'
+      - '.github/workflows/core.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'core/**'
+      - 'ci/core-smoke.py'
+      - '.github/workflows/core.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: core-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  host-routing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ProjectClash/Clash
+          ref: 58cf851790d43c2a14398e0ff0122f56b2299709
+          path: vendor/apple
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vendor/apple/bind/clash/go.mod
+          cache-dependency-path: vendor/apple/go.sum
+      - name: Build host Mihomo derivative
+        working-directory: vendor/apple
+        run: CGO_ENABLED=0 go build -tags no_tailscale,no_easytier -trimpath -o "$RUNNER_TEMP/mihomo-host" .
+      - name: Exercise real HTTP and CONNECT routing
+        run: python3 ci/core-smoke.py "$RUNNER_TEMP/mihomo-host"
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: oviron/libmihomo-android
+          ref: 1fc10afa1fcd545ee8ddcfbd82b8dbdc7f34e0e6
+          path: vendor/android
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.4'
+          cache-dependency-path: vendor/android/src/main/jni/core/go.sum
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned Android NDK
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.0.13004108" "cmake;3.22.1" "platforms;android-36"'
+      - name: Build JNI core and upstream host tests
+        working-directory: vendor/android
+        run: |
+          (cd src/main/jni/core && go test ./dnsquery/ ./selection/ ./grouptest/)
+          ANDROID_NDK="$ANDROID_HOME/ndk/28.0.13004108" bash build-native.sh
+          bash scripts/check-jni-exports.sh
+          bash gradlew :assembleRelease --no-daemon
+      - name: Verify AAR and package sources
+        run: |
+          mkdir -p dist/android
+          cp vendor/android/build/outputs/aar/*-release.aar dist/android/
+          unzip -tq dist/android/*-release.aar
+          unzip -Z1 dist/android/*-release.aar > "$RUNNER_TEMP/aar-files"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            grep -Fx "jni/$abi/libclash.so" "$RUNNER_TEMP/aar-files"
+            grep -Fx "jni/$abi/libmihomo-jni.so" "$RUNNER_TEMP/aar-files"
+          done
+          cp vendor/android/LICENSE dist/android/
+          git -C vendor/android archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/android/upstream-source.tar.gz" HEAD
+          cp core/upstreams.json dist/android/
+          (cd dist/android && sha256sum *.aar upstream-source.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-android-sdk-experimental
+          path: dist/android/
+          retention-days: 7
+          if-no-files-found: error
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ProjectClash/Clash
+          ref: 58cf851790d43c2a14398e0ff0122f56b2299709
+          path: vendor/apple
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vendor/apple/bind/clash/go.mod
+          cache-dependency-path: vendor/apple/bind/clash/go.sum
+      - name: Build iOS SDK only
+        working-directory: vendor/apple
+        run: |
+          git describe --tags --abbrev=0 --match 'v*' || git tag v0.0.0-clash.0
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.13
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.13
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          go run ./cmd/build_libbox -target apple -slices ios
+          test -d Clash.xcframework/ios-arm64
+          test -d Clash.xcframework/ios-arm64_x86_64-simulator
+      - name: Package SDK and sources
+        run: |
+          mkdir -p dist/ios
+          ditto -c -k --keepParent vendor/apple/Clash.xcframework dist/ios/Clash.xcframework.zip
+          cp vendor/apple/LICENSE dist/ios/
+          git -C vendor/apple archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/ios/upstream-source.tar.gz" HEAD
+          cp core/upstreams.json dist/ios/
+          (cd dist/ios && shasum -a 256 Clash.xcframework.zip upstream-source.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-ios-sdk-experimental
+          path: dist/ios/
+          retention-days: 7
+          if-no-files-found: error
+  harmonyos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: VOD-Studio/ArkClash
+          ref: db87381185aa1e49c7913a1f62171ed3ea61a662
+          path: vendor/arkclash
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vendor/arkclash/.go-version
+          cache-dependency-path: vendor/arkclash/core/go.sum
+      - name: Fetch upstream OpenHarmony NDK
+        working-directory: vendor/arkclash
+        run: bash scripts/ci/fetch-ohos-ndk.sh 7.0-Release ohos-sdk/linux/native-linux-x64-26.0.0.38-Beta.zip "$RUNNER_TEMP/ohos-ndk"
+      - name: Cross compile ARM64 core with upstream TLS patches
+        working-directory: vendor/arkclash
+        run: |
+          OHOS_SDK="$RUNNER_TEMP/ohos-ndk" ABI=arm64-v8a bash scripts/build-core.sh
+          test -s entry/libs/arm64-v8a/libclash.so
+          "$RUNNER_TEMP/ohos-ndk/native/llvm/bin/llvm-readelf" -h entry/libs/arm64-v8a/libclash.so
+      - name: Package native library and sources
+        run: |
+          mkdir -p dist/harmonyos
+          cp vendor/arkclash/entry/libs/arm64-v8a/libclash.so dist/harmonyos/
+          cp vendor/arkclash/core/arkclash.h vendor/arkclash/LICENSE dist/harmonyos/
+          git -C vendor/arkclash archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/harmonyos/upstream-source.tar.gz" HEAD
+          cp core/upstreams.json dist/harmonyos/
+          (cd dist/harmonyos && sha256sum libclash.so upstream-source.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-harmonyos-sdk-experimental
+          path: dist/harmonyos/
+          retention-days: 7
+          if-no-files-found: error
