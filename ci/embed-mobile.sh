@@ -46,9 +46,9 @@ with zipfile.ZipFile(aar) as z:
 PY
   cd "$project"
   flutter pub get
-  flutter analyze
-  flutter test
-  flutter build apk --debug
+  flutter analyze --no-pub
+  flutter test --no-pub
+  flutter build apk --no-pub --debug
   cp build/app/outputs/flutter-apk/app-debug.apk "$root/dist/native-app/"
   unzip -Z1 "$root/dist/native-app/app-debug.apk" > "$project/apk-files"
   for abi in arm64-v8a armeabi-v7a x86_64; do
@@ -88,9 +88,9 @@ if pod.exists():
 PY
   cd "$project"
   flutter pub get
-  flutter analyze
-  flutter test
-  flutter build ios --release --no-codesign
+  flutter analyze --no-pub
+  flutter test --no-pub
+  flutter build ios --no-pub --release --no-codesign
   test -s build/ios/iphoneos/Runner.app/Runner
   ditto -c -k --keepParent build/ios/iphoneos/Runner.app "$root/dist/native-app/ios-unsigned.zip"
 else

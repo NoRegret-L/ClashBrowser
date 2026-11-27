@@ -38,8 +38,8 @@ private class BrowserView(context: Context, messenger: BinaryMessenger, id: Int,
     private val frame = FrameLayout(context)
     private val web = WebView(context)
     private val channel = MethodChannel(messenger, "$TYPE/$id")
-    private var state = "pending"
-    private var closed = false
+    @Volatile private var state = "pending"
+    @Volatile private var closed = false
     private var authAttempted = false
     private var destroyed = false
 

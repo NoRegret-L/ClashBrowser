@@ -75,8 +75,13 @@ class _BrowserScreenState extends State<BrowserScreen> {
   }
 
   Future<void> _created(int id) async {
+    if (!mounted) return;
     final channel = MethodChannel('$browserViewType/$id');
     _channel = channel;
+    if (_closing) {
+      try { await channel.invokeMethod<bool>('close'); } catch (_) {}
+      return;
+    }
     channel.setMethodCallHandler((call) async {
       if (call.method == 'state') _update(call.arguments as String?);
       if (call.method == 'url' && mounted && !_closing &&

@@ -53,9 +53,9 @@ PY
 fi
 rm -f analysis_options.yaml
 flutter pub get
-flutter analyze lib test
-flutter test
-flutter build hap --debug --no-codesign --target-platform=ohos-arm64
+flutter analyze --no-pub lib test
+flutter test --no-pub
+flutter build hap --no-pub --debug --no-codesign --target-platform=ohos-arm64
 
 # The upstream Flutter tool copies the unsigned package here on success.
 # Do not report success on a signing warning or a failed command.
