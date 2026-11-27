@@ -14,7 +14,7 @@ on:
       - 'pubspec.yaml'
       - '.github/workflows/core.yml'
   push:
-    branches: [main]
+    branches: [main, 'test/native-route-observation']
     paths:
       - 'core/**'
       - 'ci/core-smoke.py'
@@ -151,7 +151,7 @@ jobs:
           cp vendor/android/LICENSE dist/android/
           git -C vendor/android archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/android/upstream-source.tar.gz" HEAD
           cp core/upstreams.json dist/android/
-          tar -czf dist/android/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
+          tar -czf dist/android/clashbrowser-loopback-source.tar.gz core/loopback core/routehook ci/install-loopback.sh
           (cd dist/android && sha256sum *.aar upstream-source.tar.gz > SHA256SUMS)
       - name: Verify cached or newly built SDK
         run: |
@@ -243,7 +243,7 @@ jobs:
           cp vendor/apple/LICENSE dist/ios/
           git -C vendor/apple archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/ios/upstream-source.tar.gz" HEAD
           cp core/upstreams.json dist/ios/
-          tar -czf dist/ios/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
+          tar -czf dist/ios/clashbrowser-loopback-source.tar.gz core/loopback core/routehook ci/install-loopback.sh
           (cd dist/ios && shasum -a 256 Clash.xcframework.zip upstream-source.tar.gz > SHA256SUMS)
       - name: Verify cached or newly built SDK
         run: |
@@ -326,7 +326,7 @@ jobs:
           cp vendor/arkclash/core/arkclash.h vendor/arkclash/LICENSE dist/harmonyos/
           git -C vendor/arkclash archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/harmonyos/upstream-source.tar.gz" HEAD
           cp core/upstreams.json dist/harmonyos/
-          tar -czf dist/harmonyos/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
+          tar -czf dist/harmonyos/clashbrowser-loopback-source.tar.gz core/loopback core/routehook ci/install-loopback.sh
           (cd dist/harmonyos && sha256sum libclash.so upstream-source.tar.gz > SHA256SUMS)
       - name: Verify cached or newly built SDK
         run: |

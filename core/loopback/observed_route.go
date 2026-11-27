@@ -2,24 +2,52 @@ package browserloop
 
 import (
  "strings"
- "github.com/metacubex/mihomo/tunnel/statistic"
+ "sync"
+ C "github.com/metacubex/mihomo/constant"
 )
 
-// Read native live connections, not a second rule engine. Only the requested
-// host and browser inbound are considered. No history, URLs, tokens or nodes
-// are exposed; completed or rejected flows may have no live observation.
-func observedRoute(host string) string {
+// Bounded in-memory diagnostic history, not persisted browsing history.
+// One record per match, including REJECT and connections that end immediately.
+// 256 is a resource limit; it has no effect on routing decisions.
+const routeHistoryCapacity=256
+type routeMatch struct {
+ Host string `json:"-"`
+ Rule string `json:"rule"`
+ Payload string `json:"payload"`
+ Policy string `json:"policy"`
+}
+type routeHistory struct {
+ mu sync.Mutex
+ records [routeHistoryCapacity]routeMatch
+ next,count int
+}
+func (h *routeHistory) add(m routeMatch) {
+ h.mu.Lock();defer h.mu.Unlock()
+ h.records[h.next]=m
+ h.next=(h.next+1)%len(h.records)
+ if h.count<len(h.records){h.count++}
+}
+func (h *routeHistory) observe(inbound string, metadata *C.Metadata, proxy C.Proxy, rule C.Rule) {
+ if metadata.InName!=inbound{return}
+ host:=strings.ToLower(metadata.Host)
+ if len(host)>253||!domain.MatchString(host){return}
+ policy:=proxy.Name()
+ if policy!="DIRECT"&&policy!="REJECT"&&policy!="BROWSER-PROXY"{return}
+ h.add(routeMatch{Host:host,Rule:rule.RuleType().String(),Payload:rule.Payload(),Policy:policy})
+}
+func (h *routeHistory) query(host string) []routeMatch {
+ h.mu.Lock();defer h.mu.Unlock()
+ matches:=[]routeMatch{}
+ seen:=map[routeMatch]bool{}
+ for i:=0;i<h.count;i++ {
+  m:=h.records[(h.next+len(h.records)-1-i)%len(h.records)]
+  if m.Host==host&&!seen[m]{seen[m]=true;matches=append(matches,m)}
+ }
+ return matches
+}
+func (h *routeHistory) reply(host string) string {
  host=strings.ToLower(host)
  if len(host)>253||!domain.MatchString(host){return failure()}
- type match struct { Rule string `json:"rule"`; Payload string `json:"payload"` }
- matches:=[]match{}
- seen:=map[match]bool{}
- statistic.DefaultManager.Range(func(c statistic.Tracker)bool{
-  info:=c.Info()
-  if info==nil||info.Metadata==nil||info.Metadata.InName!="CLASHBROWSER"||!strings.EqualFold(info.Metadata.Host,host)||info.Rule==""{return true}
-  m:=match{info.Rule,info.RulePayload}
-  if !seen[m]{seen[m]=true;matches=append(matches,m)}
-  return true
- })
+ matches:=h.query(host)
  return reply(map[string]any{"observed":len(matches)>0,"matches":matches})
 }

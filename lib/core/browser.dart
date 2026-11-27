@@ -232,17 +232,17 @@ class _BrowserScreenState extends State<BrowserScreen> {
     final url = _tabs.active.url;
     if (url == null || _closing || _switching) return;
     final host = Uri.parse(url).host;
-    String message = '暂无该域名的活动连接记录';
+    String message = '暂无该域名的原生路由记录';
     try {
       final result = await NativeLoopback.command({'action': 'observedRoute', 'host': host});
       if (result['observed'] == true) {
         final matches = result['matches'] as List;
-        message = matches.map((m) => '${m['rule']} · ${m['payload']}').join('\n');
+        message = matches.map((m) => '${m['policy']} · ${m['rule']} · ${m['payload']}').join('\n');
       }
     } catch (_) { message = '原生连接信息不可用'; }
     if (!mounted || _closing || _switching || _tabs.active.url != url) return;
     await showDialog<void>(context: context, builder: (context) => AlertDialog(
-      title: Text(host), content: Text('$message\n\n仅显示 Mihomo 当前活动连接的实际匹配；已结束或拒绝请求可能无记录。'),
+      title: Text(host), content: Text('$message\n\n显示当前代理会话最近的真实路由决策，包含已结束连接及 REJECT；不代表请求成功，也不是单个网页的完整流量清单。'),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
     ));
   }
