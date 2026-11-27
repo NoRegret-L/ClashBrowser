@@ -20,16 +20,17 @@ function configureAdvancedSecurity(): void {
     // kernels must remain in the existing no-JavaScript mode.
     if (!webview.WebviewController.isActiveWebEngineEvergreen()) return;
     if (webview.WebviewController.getActiveWebEngineVersion() !==
-        webview.ArkWebEngineVersion.ARKWEB_M144) return;
+        webview.ArkWebEngineVersion.M144) return;
     webview.WebviewController.setAutoPreconnect(false);
     webview.WebviewController.enableAdvancedSecurityMode({
       disableNonProxyUDP: true,
       disableServiceWorker: true,
     });
     webview.WebviewController.initializeWebEngine();
-    securityConfigured = webview.WebviewController.isActiveWebEngineEvergreen() &&
+    securityConfigured = !webview.WebviewController.isAutoPreconnectEnabled() &&
+      webview.WebviewController.isActiveWebEngineEvergreen() &&
       webview.WebviewController.getActiveWebEngineVersion() ===
-      webview.ArkWebEngineVersion.ARKWEB_M144;
+      webview.ArkWebEngineVersion.M144;
   } catch (_) {
     securityConfigured = false;
   }

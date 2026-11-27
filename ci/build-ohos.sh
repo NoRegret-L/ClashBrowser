@@ -50,16 +50,42 @@ rm -f analysis_options.yaml
 flutter pub get
 flutter analyze --no-pub lib test
 flutter test --no-pub
-experimental_js="${CLASHBROWSER_OHOS_EXPERIMENTAL_JS:-false}"
-case "$experimental_js" in true|false) ;; *) echo "Invalid experimental JS flag" >&2; exit 2 ;; esac
-flutter build hap --no-pub --debug --no-codesign --target-platform=ohos-arm64 \
-  --dart-define="CLASHBROWSER_OHOS_EXPERIMENTAL_JS=$experimental_js"
-
-# The upstream Flutter tool copies the unsigned package here on success.
-# Do not report success on a signing warning or a failed command.
+# When embedded CI has no explicit override, compile both variants in the
+# same generated project/container and reuse the native library and Pub graph.
+# Explicit true/false remains a single-variant local build.
+experimental_js="${CLASHBROWSER_OHOS_EXPERIMENTAL_JS:-auto}"
+case "$experimental_js" in auto|true|false) ;; *) echo "Invalid experimental JS flag" >&2; exit 2 ;; esac
 shopt -s nullglob
-haps=(build/ohos/hap/*-unsigned.hap)
-[[ "${#haps[@]}" -eq 1 ]]
-test -s "${haps[0]}"
-unzip -tq "${haps[0]}"
-ls -lh "${haps[0]}"
+build_variant() {
+  local flag="$1"
+  flutter build hap --no-pub --debug --no-codesign --target-platform=ohos-arm64 \
+    --dart-define="CLASHBROWSER_OHOS_EXPERIMENTAL_JS=$flag"
+  haps=(build/ohos/hap/*-unsigned.hap)
+  [[ "${#haps[@]}" -eq 1 ]]
+  test -s "${haps[0]}"
+  unzip -tq "${haps[0]}"
+  ls -lh "${haps[0]}"
+}
+if [[ "$experimental_js" == auto && "${CLASHBROWSER_EMBED_OHOS:-0}" == 1 ]]; then
+  build_variant false
+  baseline="${haps[0]}"
+  mkdir -p dist/native-app
+  saved="$(mktemp)"
+  trap 'rm -f "$saved"' EXIT
+  cp "$baseline" "$saved"
+  build_variant true
+  cp "${haps[0]}" dist/native-app/clashbrowser-experimental-js.hap
+  # Verify the second variant independently; it must not overwrite baseline.
+  unzip -Z1 dist/native-app/clashbrowser-experimental-js.hap > dist/native-app/experimental-hap-list.txt
+  grep -E '(^|/)libclash\.so$' dist/native-app/experimental-hap-list.txt
+  cp "$saved" "$baseline"
+  unzip -tq "$baseline"
+  sha256sum "$baseline" dist/native-app/clashbrowser-experimental-js.hap
+  # Reject identical outputs (e.g. tool ignored the Dart flag).
+  if cmp -s "$saved" dist/native-app/clashbrowser-experimental-js.hap; then
+    echo "Experimental and static HAPs are identical" >&2; exit 1
+  fi
+else
+  [[ "$experimental_js" != auto ]] || experimental_js=false
+  build_variant "$experimental_js"
+fi
