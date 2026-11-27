@@ -26,6 +26,17 @@ if [[ "${CLASHBROWSER_EMBED_OHOS:-0}" == 1 ]]; then
   install -m 0644 sdk-input/libclash.so ohos/entry/libs/arm64-v8a/libclash.so
 fi
 
+if [[ "${CLASHBROWSER_EMBED_OHOS:-0}" == 1 ]]; then
+  module=ohos/entry/src/main/module.json5
+  if ! grep -q 'ohos.permission.INTERNET' "$module"; then
+    if grep -Eq '"requestPermissions"\s*:' "$module"; then
+      perl -0pi -e 's/("requestPermissions"\s*:\s*\[)/$1\n      {"name":"ohos.permission.INTERNET"},/' "$module"
+    else
+      perl -0pi -e 's/("module"\s*:\s*\{)/$1\n    "requestPermissions":[{"name":"ohos.permission.INTERNET"}],/' "$module"
+    fi
+  fi
+  grep -F 'ohos.permission.INTERNET' "$module"
+fi
 rm -f analysis_options.yaml
 flutter pub get
 flutter analyze lib test

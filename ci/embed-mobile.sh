@@ -17,6 +17,15 @@ cp -R test/. "$project/test/"
 rm -f "$project/analysis_options.yaml"
 
 if [[ "$platform" == android ]]; then
+  manifest="$project/android/app/src/main/AndroidManifest.xml"
+  if ! grep -q 'android.permission.INTERNET' "$manifest"; then
+    python3 - "$manifest" <<'PY'
+import pathlib,sys
+p=pathlib.Path(sys.argv[1])
+s=p.read_text()
+p.write_text(s.replace('<application', '<uses-permission android:name="android.permission.INTERNET"/>\n    <application',1))
+PY
+  fi
   libs="$project/android/app/src/main/jniLibs"
   mkdir -p "$libs"
   python3 - "$sdk" "$libs" <<'PY'

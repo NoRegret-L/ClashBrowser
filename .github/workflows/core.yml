@@ -5,6 +5,7 @@ on:
       - 'core/**'
       - 'ci/core-smoke.py'
       - 'ci/embed-mobile.sh'
+      - 'ci/install-loopback.sh'
       - 'ci/build-ohos.sh'
       - 'lib/**'
       - 'test/**'
@@ -41,6 +42,11 @@ jobs:
         with:
           go-version-file: vendor/apple/bind/clash/go.mod
           cache-dependency-path: vendor/apple/go.sum
+      - name: Test dedicated authenticated loopback adapter
+        run: |
+          bash ci/install-loopback.sh host
+          cd vendor/apple
+          go test -tags no_tailscale,no_easytier ./browserloop -count=1 -v
       - name: Build host Mihomo derivative
         working-directory: vendor/apple
         run: CGO_ENABLED=0 go build -tags no_tailscale,no_easytier -trimpath -o "$RUNNER_TEMP/mihomo-host" .
@@ -69,6 +75,7 @@ jobs:
           java-version: '17'
       - name: Install pinned Android NDK
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.0.13004108" "cmake;3.22.1" "platforms;android-36"'
+      - run: bash ci/install-loopback.sh android
       - name: Build JNI core and upstream host tests
         working-directory: vendor/android
         run: |
@@ -89,6 +96,7 @@ jobs:
           cp vendor/android/LICENSE dist/android/
           git -C vendor/android archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/android/upstream-source.tar.gz" HEAD
           cp core/upstreams.json dist/android/
+          tar -czf dist/android/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
           (cd dist/android && sha256sum *.aar upstream-source.tar.gz > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
@@ -121,6 +129,7 @@ jobs:
           case "$(go env GOROOT)/" in
             "$(go env GOMODCACHE)/"*) echo 'GOROOT must not be under GOMODCACHE'; exit 1 ;;
           esac
+      - run: bash ci/install-loopback.sh ios
       - name: Build iOS SDK only
         working-directory: vendor/apple
         run: |
@@ -138,6 +147,7 @@ jobs:
           cp vendor/apple/LICENSE dist/ios/
           git -C vendor/apple archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/ios/upstream-source.tar.gz" HEAD
           cp core/upstreams.json dist/ios/
+          tar -czf dist/ios/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
           (cd dist/ios && shasum -a 256 Clash.xcframework.zip upstream-source.tar.gz > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
@@ -165,6 +175,7 @@ jobs:
       - name: Fetch upstream OpenHarmony NDK
         working-directory: vendor/arkclash
         run: bash scripts/ci/fetch-ohos-ndk.sh 7.0-Release ohos-sdk/linux/native-linux-x64-26.0.0.38-Beta.zip "$RUNNER_TEMP/ohos-ndk"
+      - run: bash ci/install-loopback.sh harmonyos
       - name: Cross compile ARM64 core with upstream TLS patches
         working-directory: vendor/arkclash
         run: |
@@ -178,6 +189,7 @@ jobs:
           cp vendor/arkclash/core/arkclash.h vendor/arkclash/LICENSE dist/harmonyos/
           git -C vendor/arkclash archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/harmonyos/upstream-source.tar.gz" HEAD
           cp core/upstreams.json dist/harmonyos/
+          tar -czf dist/harmonyos/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
           (cd dist/harmonyos && sha256sum libclash.so upstream-source.tar.gz > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
@@ -248,7 +260,7 @@ jobs:
       - name: Attach source provenance
         run: |
           cp sdk-input/LICENSE sdk-input/upstreams.json sdk-input/SHA256SUMS dist/native-app/
-          cp sdk-input/upstream-source.tar.gz dist/native-app/
+          cp sdk-input/upstream-source.tar.gz sdk-input/clashbrowser-loopback-source.tar.gz dist/native-app/
       - uses: actions/upload-artifact@v4
         with:
           name: clashbrowser-native-probe-${{ matrix.platform }}

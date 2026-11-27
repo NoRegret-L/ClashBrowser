@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'core/subscription.dart';
 import 'core/native_probe.dart';
+import 'core/core_adapter.dart';
+import 'core/subscription_link.dart';
 
 void main() => runApp(const ClashBrowser());
 
@@ -25,6 +27,45 @@ class SubscriptionScreen extends StatefulWidget {
 
 class _SubscriptionScreenState extends State<SubscriptionScreen> {
   final _yaml = TextEditingController();
+  final _url = TextEditingController();
+  final _proxyDomains = TextEditingController();
+  final _directDomains = TextEditingController();
+  final _core = ChannelCoreAdapter();
+  bool _downloading = false;
+  bool _changingCore = false;
+  bool get _locked => _changingCore || _core.state != CoreState.offline;
+
+  Future<void> _download() async {
+    setState(() { _downloading = true; _error = null; });
+    try {
+      final profile = await SubscriptionLink.fetch(_url.text);
+      if (!mounted) return;
+      setState(() {
+        _profiles.add(profile);
+        _active = _profiles.length - 1;
+        _selected = profile.nodeNames.first;
+        _url.clear();
+      });
+    } catch (_) {
+      if (mounted) setState(() => _error = '订阅下载失败：请检查 HTTPS 链接及 Clash 格式。');
+    } finally { if (mounted) setState(() => _downloading = false); }
+  }
+
+  List<String> _domains(String value) => value.split(RegExp(r'[,\s]+')).where((s) => s.isNotEmpty).toList();
+
+  Future<void> _toggleCore() async {
+    setState(() { _changingCore = true; _error = null; });
+    try {
+      if (_core.state == CoreState.offline) {
+        await _core.start(_profiles[_active!], selectedNode: _selected!,
+          proxyDomains: _domains(_proxyDomains.text), directDomains: _domains(_directDomains.text));
+      } else {
+        await _core.stop();
+      }
+    } catch (_) {
+      if (mounted) setState(() => _error = '内核操作失败，网页保持禁用。');
+    } finally { if (mounted) setState(() => _changingCore = false); }
+  }
   final _profiles = <SubscriptionProfile>[];
   int? _active;
   String? _selected;
@@ -45,6 +86,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   @override
   void dispose() {
     _yaml.dispose();
+    _url.dispose();
+    _proxyDomains.dispose();
+    _directDomains.dispose();
     super.dispose();
   }
 
@@ -91,17 +135,25 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
             if (_nativeStatus != null) Text(_nativeStatus!),
             const SizedBox(height: 16),
             const Text('仅导入 Clash YAML 中的节点，不应用原订阅规则或网络设置。'),
-            const Text('仅保存在当前会话，暂不支持订阅 URL 下载。'),
+            const Text('仅保存在当前会话。订阅下载由你主动触发，使用直连 HTTPS，不经过浏览器代理。'),
+            TextField(controller: _url, enabled: !_locked && !_downloading,
+              obscureText: true, autocorrect: false, enableSuggestions: false,
+              decoration: const InputDecoration(labelText: 'Clash HTTPS 订阅链接')),
+            FilledButton(onPressed: _locked || _downloading ? null : _download,
+              child: Text(_downloading ? '下载中' : '从链接导入')),
+            if (_core.state == CoreState.listenerReady)
+              const Text('本地代理监听已就绪 · 网页仍禁用，等待浏览器代理接入。'),
             TextField(
               key: const Key('yaml-input'),
               controller: _yaml,
+              enabled: !_locked && !_downloading,
               minLines: 3,
               maxLines: 6,
               autocorrect: false,
               enableSuggestions: false,
               decoration: const InputDecoration(labelText: '粘贴 Clash YAML'),
             ),
-            FilledButton(onPressed: _import, child: const Text('导入节点')),
+            FilledButton(onPressed: _locked || _downloading ? null : _import, child: const Text('导入节点')),
             if (_error != null) Text(_error!),
             if (profile != null) ...[
               DropdownButton<int>(
@@ -111,7 +163,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   for (var i = 0; i < _profiles.length; i++)
                     DropdownMenuItem(value: i, child: Text('配置 ${i + 1}')),
                 ],
-                onChanged: (i) {
+                onChanged: _locked || _downloading ? null : (i) {
                   if (i == null) return;
                   setState(() {
                     _active = i;
@@ -131,9 +183,15 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     DropdownMenuItem(value: name, child: Text(name,
                       overflow: TextOverflow.ellipsis)),
                 ],
-                onChanged: (name) => setState(() => _selected = name),
+                onChanged: _locked || _downloading ? null : (name) => setState(() => _selected = name),
               ),
-              OutlinedButton(onPressed: _remove, child: const Text('删除配置')),
+              OutlinedButton(onPressed: _locked || _downloading ? null : _remove, child: const Text('删除配置')),
+              TextField(controller: _proxyDomains, enabled: !_locked,
+                decoration: const InputDecoration(labelText: '代理域名（逗号分隔）')),
+              TextField(controller: _directDomains, enabled: !_locked,
+                decoration: const InputDecoration(labelText: '直连域名（逗号分隔）')),
+              FilledButton(onPressed: _changingCore || _downloading ? null : _toggleCore,
+                child: Text(_core.state == CoreState.offline ? '启动本地代理' : '停止本地代理')),
             ],
           ],
         ),
