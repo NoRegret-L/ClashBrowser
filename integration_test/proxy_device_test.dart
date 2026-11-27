@@ -29,6 +29,7 @@ class LocalUpstream {
     try {
       String? first;
       await for (final line in socket
+          .cast<List<int>>()
           .transform(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
           .timeout(const Duration(seconds: 10))) {

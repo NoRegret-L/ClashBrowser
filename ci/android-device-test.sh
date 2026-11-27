@@ -14,4 +14,5 @@ p.write_text(s.replace("dev_dependencies:", "dev_dependencies:\n  integration_te
 PY
 cd "$project"
 flutter pub get
+flutter analyze --no-pub integration_test
 flutter test --no-pub integration_test/proxy_device_test.dart -d emulator-5554
