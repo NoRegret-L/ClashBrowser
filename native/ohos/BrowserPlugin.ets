@@ -8,16 +8,45 @@ import { webview } from '@kit.ArkWeb';
 
 const VIEW_TYPE: string = 'clashbrowser/webview/v2';
 
+// App-process global, before any Web component is created. Never retry a late
+// configuration call; the API is void and cannot attest packet-level isolation.
+let securityAttempted: boolean = false;
+let securityConfigured: boolean = false;
+function configureAdvancedSecurity(): void {
+  if (securityAttempted) return;
+  securityAttempted = true;
+  try {
+    // The new API was introduced in SDK 26.0.0 / M144. Older or legacy
+    // kernels must remain in the existing no-JavaScript mode.
+    if (!webview.WebviewController.isActiveWebEngineEvergreen()) return;
+    if (webview.WebviewController.getActiveWebEngineVersion() !==
+        webview.ArkWebEngineVersion.ARKWEB_M144) return;
+    webview.WebviewController.setAutoPreconnect(false);
+    webview.WebviewController.enableAdvancedSecurityMode({
+      disableNonProxyUDP: true,
+      disableServiceWorker: true,
+    });
+    webview.WebviewController.initializeWebEngine();
+    securityConfigured = webview.WebviewController.isActiveWebEngineEvergreen() &&
+      webview.WebviewController.getActiveWebEngineVersion() ===
+      webview.ArkWebEngineVersion.ARKWEB_M144;
+  } catch (_) {
+    securityConfigured = false;
+  }
+}
+
 class BrowserArgs {
   port: number = 0;
   username: string = '';
   password: string = '';
+  experimentalJavaScript: boolean = false;
 }
 
 export class BrowserPlugin implements FlutterPlugin {
   private storage: MethodChannel | undefined;
   getUniqueClassName(): string { return 'ClashBrowserPlugin'; }
   onAttachedToEngine(binding: FlutterPluginBinding): void {
+    configureAdvancedSecurity();
     webview.WebviewController.setWebDebuggingAccess(false);
     const directory = binding.getApplicationContext().filesDir;
     this.storage = new MethodChannel(binding.getBinaryMessenger(), 'clashbrowser/storage/v1');
@@ -55,6 +84,7 @@ class BrowserView extends PlatformView {
   closed: boolean = false;
   private args: BrowserArgs = new BrowserArgs();
   private authAttempted: boolean = false;
+  javaScriptAllowed: boolean = false;
   constructor(id: number, args: string, messenger: BinaryMessenger) {
     super();
     this.channel = new MethodChannel(messenger, VIEW_TYPE + '/' + id);
@@ -63,6 +93,8 @@ class BrowserView extends PlatformView {
       if (!Number.isInteger(this.args.port) || this.args.port < 1 || this.args.port > 65535 ||
           this.args.username !== 'browser' || !/^[a-f0-9]{64}$/.test(this.args.password)) {
         this.state = 'failed';
+      } else {
+        this.javaScriptAllowed = securityConfigured && this.args.experimentalJavaScript === true;
       }
     } catch (_) { this.state = 'failed'; }
     this.channel.setMethodCallHandler({
@@ -93,6 +125,9 @@ class BrowserView extends PlatformView {
   }
   private handle(call: MethodCall, result: MethodResult): void {
     if (call.method === 'status') { result.success(this.state); return; }
+    if (call.method === 'securityMode') {
+      result.success(this.javaScriptAllowed && !this.closed ? 'experimental-js' : 'static'); return;
+    }
     if (call.method === 'close') { this.close(); result.success(true); return; }
     if (this.closed || this.state !== 'ready') { result.success(false); return; }
     try {
@@ -134,6 +169,7 @@ class BrowserView extends PlatformView {
   private close(): void {
     if (this.closed) return;
     this.closed = true; this.state = 'failed';
+    this.javaScriptAllowed = false;
     try { this.controller.stop(); } catch (_) {}
     this.args.password = ''; this.args.username = '';
     // Retain the proxy override while the renderer drains.
@@ -149,7 +185,7 @@ struct BrowserContent {
 
   build() {
     Web({ src: 'about:blank', controller: this.browser.controller })
-      .javaScriptAccess(false)
+      .javaScriptAccess(this.browser.javaScriptAllowed)
       .fileAccess(false)
       .domStorageAccess(false)
       .mixedMode(MixedMode.None)
@@ -165,7 +201,10 @@ struct BrowserContent {
         return this.browser.auth(event);
       })
       .onPermissionRequest((event) => { event?.request.deny(); })
-      .onSslErrorEventReceive((event) => { event?.handler.handleCancel(); })
+      .onSslErrorEventReceive((event) => {
+        event?.handler.handleCancel();
+        this.browser.loadError();
+      })
       .onPageEnd((event) => { if (event) this.browser.loaded(event.url); })
       .onErrorReceive((event) => {
         if (event?.request.isMainFrame()) this.browser.loadError();

@@ -13,6 +13,7 @@ import 'browser_tabs.dart';
 export 'browser_address.dart';
 
 const browserViewType = 'clashbrowser/webview/v2';
+const ohosExperimentalJavaScript = bool.fromEnvironment('CLASHBROWSER_OHOS_EXPERIMENTAL_JS');
 
 
 class BrowserBridge {
@@ -42,6 +43,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
   final _address = TextEditingController();
   final _addressFocus = FocusNode();
   bool _addressEdited = false;
+  bool _nativeExperimentalJavaScript = false;
+  bool get _isOhos => Platform.operatingSystem == 'ohos' || Platform.operatingSystem == 'harmonyos';
   MethodChannel? _channel;
   final _tabs = BrowserTabs();
   late final _library = widget.library ?? BrowserLibrary();
@@ -63,6 +66,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
       setState(() {
         change();
         _generation++;
+        _nativeExperimentalJavaScript = false;
         _restoreUrl = _tabs.active.url;
         _addressEdited = false;
         _address.text = _restoreUrl ?? '';
@@ -125,6 +129,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
     'port': widget.endpoint.port,
     'username': widget.endpoint.username,
     'password': widget.endpoint.password,
+    'experimentalJavaScript': _isOhos && ohosExperimentalJavaScript,
   });
 
   void _update(String? state) {
@@ -181,6 +186,12 @@ class _BrowserScreenState extends State<BrowserScreen> {
       }
     });
     try {
+      if (_isOhos) {
+        final mode = await channel.invokeMethod<String>('securityMode');
+        if (mounted && generation == _generation && _channel == channel) {
+          setState(() => _nativeExperimentalJavaScript = mode == 'experimental-js');
+        }
+      }
       final state = await channel.invokeMethod<String>('status');
       if (mounted && generation == _generation && _channel == channel) _update(state);
     } catch (_) {
@@ -323,6 +334,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 icon: const Icon(Icons.stop)),
               Expanded(child: Text(_status, key: const Key('browser-status'), style: Theme.of(context).textTheme.bodySmall)),
             ]),
+            if (_isOhos && ohosExperimentalJavaScript)
+              Text(_nativeExperimentalJavaScript
+                  ? '实验 JavaScript · 尚未通过真机隔离验证'
+                  : 'JavaScript 已关闭 · 原生安全模式不可用',
+                style: Theme.of(context).textTheme.bodySmall),
             const Divider(height: 1),
             Expanded(child: KeyedSubtree(key: ValueKey(_generation), child: _surface())),
           ]),
