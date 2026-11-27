@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'core/subscription.dart';
+import 'core/native_probe.dart';
 
 void main() => runApp(const ClashBrowser());
 
@@ -28,6 +29,18 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
   int? _active;
   String? _selected;
   String? _error;
+  String? _nativeStatus;
+  bool _probing = false;
+
+  Future<void> _probe() async {
+    setState(() => _probing = true);
+    final result = await NativeCoreProbe.inspect();
+    if (!mounted) return;
+    setState(() {
+      _nativeStatus = result;
+      _probing = false;
+    });
+  }
 
   @override
   void dispose() {
@@ -71,6 +84,11 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             const Text('代理未就绪 · 浏览器网络已禁用'),
+            OutlinedButton(
+              onPressed: _probing ? null : _probe,
+              child: const Text('检查原生内核'),
+            ),
+            if (_nativeStatus != null) Text(_nativeStatus!),
             const SizedBox(height: 16),
             const Text('仅导入 Clash YAML 中的节点，不应用原订阅规则或网络设置。'),
             const Text('仅保存在当前会话，暂不支持订阅 URL 下载。'),

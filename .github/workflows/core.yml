@@ -4,6 +4,12 @@ on:
     paths:
       - 'core/**'
       - 'ci/core-smoke.py'
+      - 'ci/embed-mobile.sh'
+      - 'ci/build-ohos.sh'
+      - 'lib/**'
+      - 'test/**'
+      - 'native/**'
+      - 'pubspec.yaml'
       - '.github/workflows/core.yml'
   push:
     branches: [main]
@@ -177,5 +183,75 @@ jobs:
         with:
           name: mihomo-harmonyos-sdk-experimental
           path: dist/harmonyos/
+          retention-days: 7
+          if-no-files-found: error
+
+  native-app:
+    name: Embedded SDK app (${{ matrix.platform }})
+    needs: [android, ios, harmonyos, host-routing]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: android
+            os: ubuntu-latest
+            artifact: mihomo-android-sdk-experimental
+          - platform: ios
+            os: macos-15
+            artifact: mihomo-ios-sdk-experimental
+          - platform: harmonyos
+            os: ubuntu-latest
+            artifact: mihomo-harmonyos-sdk-experimental
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: sdk-input
+      - uses: actions/setup-java@v4
+        if: matrix.platform == 'android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        if: matrix.platform != 'harmonyos'
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+      - name: Verify SDK and build Android or iOS app
+        if: matrix.platform != 'harmonyos'
+        run: bash ci/embed-mobile.sh "${{ matrix.platform }}" "$GITHUB_WORKSPACE/sdk-input" "$RUNNER_TEMP/clashbrowser-native"
+      - name: Build pinned HarmonyOS SDK image
+        if: matrix.platform == 'harmonyos'
+        run: |
+          git init "$RUNNER_TEMP/ohos-builder"
+          git -C "$RUNNER_TEMP/ohos-builder" fetch --depth=1 https://github.com/zhongdaiqi/flutter-ohos-builder.git 5479a5b90e78794a2d04294ca0f14788911678e0
+          git -C "$RUNNER_TEMP/ohos-builder" checkout --detach FETCH_HEAD
+          docker build -t clashbrowser-ohos-ci "$RUNNER_TEMP/ohos-builder"
+      - name: Build HAP with native library
+        if: matrix.platform == 'harmonyos'
+        run: |
+          set -o pipefail
+          (cd sdk-input && sha256sum -c SHA256SUMS)
+          docker run --rm --entrypoint /bin/bash \
+            -e CLASHBROWSER_EMBED_OHOS=1 \
+            -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
+            clashbrowser-ohos-ci /workspace/ci/build-ohos.sh 2>&1 | tee ohos-native.log
+          mkdir -p dist/native-app
+          cp build/ohos/hap/*-unsigned.hap dist/native-app/
+          unzip -Z1 dist/native-app/*-unsigned.hap > "$RUNNER_TEMP/hap-list"
+          grep -E '(^|/)libclash\.so$' "$RUNNER_TEMP/hap-list"
+      - name: Attach source provenance
+        run: |
+          cp sdk-input/LICENSE sdk-input/upstreams.json sdk-input/SHA256SUMS dist/native-app/
+          cp sdk-input/upstream-source.tar.gz dist/native-app/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clashbrowser-native-probe-${{ matrix.platform }}
+          path: dist/native-app/
           retention-days: 7
           if-no-files-found: error

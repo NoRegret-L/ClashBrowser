@@ -21,6 +21,11 @@ grep -Eq '"compileSdkVersion"\s*:\s*"26\.0\.0"' "$profile"
 perl -0pi -e 's/("bundleName"\s*:\s*")[^"]*(")/$1io.github.noregretl.clashbrowser$2/' ohos/AppScope/app.json5
 grep -F '"io.github.noregretl.clashbrowser"' ohos/AppScope/app.json5
 
+if [[ "${CLASHBROWSER_EMBED_OHOS:-0}" == 1 ]]; then
+  mkdir -p ohos/entry/libs/arm64-v8a
+  install -m 0644 sdk-input/libclash.so ohos/entry/libs/arm64-v8a/libclash.so
+fi
+
 rm -f analysis_options.yaml
 flutter pub get
 flutter analyze lib test
