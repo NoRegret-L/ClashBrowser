@@ -50,8 +50,18 @@ void main() {
       expect(find.text('网页加载失败（无直连回退）'), findsNothing);
       expect(find.text('代理认证失败或不兼容'), findsNothing);
 
-      await tester.enterText(address, 'https://browser-blocked-probe.invalid/');
-      await tester.tap(open);
+      const blocked = 'https://browser-blocked-probe.invalid/';
+      await tester.enterText(address, blocked);
+      await tester.pump();
+      expect(tester.widget<TextField>(address).controller!.text, blocked,
+          reason: 'Previous navigation must not overwrite a user address draft');
+      // Exercise the keyboard submission path rather than tapping a potentially
+      // moving native-platform-view overlay while the keyboard is showing.
+      await tester.testTextInput.receiveAction(TextInputAction.go);
+      await tester.pump();
+      print('TEST: submitted unmatched domain');
+      expect(tester.widget<TextField>(address).controller!.text, blocked,
+          reason: 'The unmatched address must actually be submitted');
       await waitFor(tester,
           () => find.text('网页加载失败（无直连回退）').evaluate().isNotEmpty,
           'Rejected navigation did not report a failure');

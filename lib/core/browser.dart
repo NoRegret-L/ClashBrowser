@@ -40,6 +40,8 @@ class BrowserScreen extends StatefulWidget {
 
 class _BrowserScreenState extends State<BrowserScreen> {
   final _address = TextEditingController();
+  final _addressFocus = FocusNode();
+  bool _addressEdited = false;
   MethodChannel? _channel;
   final _tabs = BrowserTabs();
   late final _library = widget.library ?? BrowserLibrary();
@@ -62,6 +64,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
         change();
         _generation++;
         _restoreUrl = _tabs.active.url;
+        _addressEdited = false;
         _address.text = _restoreUrl ?? '';
         _status = '正在配置应用内代理…';
         _switching = false;
@@ -168,7 +171,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
           call.arguments is String && browserAddress(call.arguments as String) != null) {
         final url = call.arguments as String;
         setState(() {
-          _address.text = url;
+          // A late page-finished callback must never replace a user's draft.
+          if (!_addressEdited && !_addressFocus.hasFocus) _address.text = url;
           _tabs.visited(url);
           _status = '网页加载完成 · 应用内代理';
         });
@@ -204,7 +208,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
       setState(() => _status = '仅支持有效的 HTTPS 域名');
       return;
     }
-    FocusScope.of(context).unfocus();
+    _addressEdited = false;
+    _addressFocus.unfocus();
     _address.text = url.toString();
     setState(() => _status = '正在加载网页…');
     _command('load', url.toString());
@@ -253,6 +258,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
   @override
   void dispose() {
     _channel?.setMethodCallHandler(null);
+    _addressFocus.dispose();
     _address.dispose();
     super.dispose();
   }
@@ -293,6 +299,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
               child: Row(children: [
                 Expanded(child: TextField(
                   key: const Key('browser-address'), controller: _address,
+                  focusNode: _addressFocus,
+                  onChanged: (_) => _addressEdited = true,
                   enabled: !_closing, keyboardType: TextInputType.url,
                   autocorrect: false, enableSuggestions: false,
                   textInputAction: TextInputAction.go,
