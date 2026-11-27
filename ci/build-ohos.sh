@@ -39,17 +39,12 @@ if [[ "${CLASHBROWSER_EMBED_OHOS:-0}" == 1 ]]; then
   ets=ohos/entry/src/main/ets
   cp native/ohos/BrowserPlugin.ets "$ets/entryability/"
   cp native/ohos/ohos_view.dart.in lib/core/ohos_view.dart
-  python3 - "$ets/entryability/EntryAbility.ets" <<'PY'
-import pathlib, sys
-entry = pathlib.Path(sys.argv[1])
-s = entry.read_text()
-if "new BrowserPlugin()" not in s:
-    anchor = 'GeneratedPluginRegistrant.registerWith(flutterEngine)'
-    assert anchor in s, "Flutter EntryAbility template changed"
-    s = s.replace(anchor, anchor + ';\n    this.addPlugin(new BrowserPlugin())', 1)
-    entry.write_text("import { BrowserPlugin } from './BrowserPlugin';\n" + s)
-
-PY
+  entry="$ets/entryability/EntryAbility.ets"
+  if ! grep -Fq 'new BrowserPlugin()' "$entry"; then
+    grep -Fq 'GeneratedPluginRegistrant.registerWith(flutterEngine)' "$entry"
+    perl -0pi -e 's/\A/import { BrowserPlugin } from ".\/BrowserPlugin";\n/; s/(GeneratedPluginRegistrant\.registerWith\(flutterEngine\));?/$1;\n    this.addPlugin(new BrowserPlugin());/' "$entry"
+  fi
+  grep -Fq 'new BrowserPlugin()' "$entry"
 fi
 rm -f analysis_options.yaml
 flutter pub get

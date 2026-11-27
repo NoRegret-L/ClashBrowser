@@ -34,7 +34,10 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: BrowserScreen(endpoint: endpoint)));
     expect(find.byKey(const Key('browser-address')), findsOneWidget);
     for (final label in ['打开', '后退', '前进', '刷新', '停止加载']) {
-      expect(tester.widget<IconButton>(find.byTooltip(label)).onPressed, isNull);
+      final button = find.byWidgetPredicate((widget) =>
+        widget is IconButton && widget.tooltip == label);
+      expect(button, findsOneWidget);
+      expect(tester.widget<IconButton>(button).onPressed, isNull);
     }
   });
 }
