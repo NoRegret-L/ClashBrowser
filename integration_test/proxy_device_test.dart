@@ -12,7 +12,9 @@ Future<void> waitFor(WidgetTester tester, bool Function() condition,
     await tester.pump(const Duration(milliseconds: 100));
     if (condition()) return;
   }
-  fail(failure);
+  final status = find.byKey(const Key('browser-status'));
+  final address = find.byKey(const Key('browser-address'));
+  fail('$failure; status: ${status.evaluate().isEmpty ? "missing" : tester.widget<Text>(status).data}; address: ${address.evaluate().isEmpty ? "missing" : tester.widget<TextField>(address).controller!.text}');
 }
 
 void main() {
@@ -43,6 +45,8 @@ void main() {
           () => tester.widget<TextField>(address).controller!.text ==
               'https://browser-tls-probe.invalid/verified',
           'Authenticated TLS navigation and redirect did not complete');
+      expect(find.text('网页加载完成 · 应用内代理'), findsOneWidget);
+      print('TEST: authenticated TLS redirect reached /verified');
       expect(find.text('网页加载失败（无直连回退）'), findsNothing);
       expect(find.text('代理认证失败或不兼容'), findsNothing);
 

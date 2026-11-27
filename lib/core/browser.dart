@@ -136,6 +136,9 @@ class _BrowserScreenState extends State<BrowserScreen> {
       } else if (state == 'failed') {
         _ready = false;
         _status = '代理不可用，禁止导航';
+      } else if (state == 'loading') {
+        _navigationFailed = false;
+        _status = '正在加载网页…';
       } else if (state == 'loadError') {
         _navigationFailed = true;
         _status = '网页加载失败（无直连回退）';
@@ -164,7 +167,11 @@ class _BrowserScreenState extends State<BrowserScreen> {
       if (call.method == 'url' && _ready && !_navigationFailed &&
           call.arguments is String && browserAddress(call.arguments as String) != null) {
         final url = call.arguments as String;
-        setState(() { _address.text = url; _tabs.visited(url); });
+        setState(() {
+          _address.text = url;
+          _tabs.visited(url);
+          _status = '网页加载完成 · 应用内代理';
+        });
         await _library.record(url);
         if (mounted) setState(() {});
       }
@@ -306,7 +313,7 @@ class _BrowserScreenState extends State<BrowserScreen> {
                 icon: const Icon(Icons.refresh)),
               IconButton(tooltip: '停止加载', onPressed: _ready ? () => _command('stop') : null,
                 icon: const Icon(Icons.stop)),
-              Expanded(child: Text(_status, style: Theme.of(context).textTheme.bodySmall)),
+              Expanded(child: Text(_status, key: const Key('browser-status'), style: Theme.of(context).textTheme.bodySmall)),
             ]),
             const Divider(height: 1),
             Expanded(child: KeyedSubtree(key: ValueKey(_generation), child: _surface())),

@@ -80,8 +80,12 @@ adb -s emulator-5554 reverse "tcp:$proxy_port" "tcp:$proxy_port"
 cd "$project"
 flutter pub get
 flutter analyze --no-pub integration_test
+test_status=0
 flutter test --no-pub integration_test/proxy_device_test.dart \
-  -d emulator-5554 --dart-define="TEST_PROXY_PORT=$proxy_port"
+  -d emulator-5554 --dart-define="TEST_PROXY_PORT=$proxy_port" || test_status=$?
+# Fixture events contain only reserved test names and paths, never credentials.
+if [[ -f "$fixture/events.jsonl" ]]; then cat "$fixture/events.jsonl"; fi
+adb -s emulator-5554 shell dumpsys webviewupdate || true
 
 # Verify actual server receipt, independent of WebView error callbacks.
 python3 - "$fixture/events.jsonl" <<'PY'
@@ -90,5 +94,6 @@ events = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().spl
 assert any(e == {"kind": "connect", "value": "browser-tls-probe.invalid:443"} for e in events), events
 assert any(e == {"kind": "https", "value": "/verified"} for e in events), events
 assert not any(e == {"kind": "connect", "value": "browser-blocked-probe.invalid:443"} for e in events), events
-print("Authenticated CONNECT, TLS origin receipt and default REJECT verified")
+print("Authenticated CONNECT and TLS origin receipt verified; blocked host not observed at relay")
 PY
+exit "$test_status"

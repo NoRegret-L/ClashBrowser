@@ -48,6 +48,11 @@ private class BrowserView(context: Context, messenger: BinaryMessenger, id: Int,
     @Volatile private var closed = false
     private var authAttempted = false
     private var destroyed = false
+    private var mainFrameFailed = false
+    private fun navigationError() {
+        mainFrameFailed = true
+        emit("loadError")
+    }
 
     private fun safe(raw: String): Boolean {
         val uri = Uri.parse(raw)
@@ -80,11 +85,11 @@ private class BrowserView(context: Context, messenger: BinaryMessenger, id: Int,
             val ok = when (call.method) {
                 "load" -> {
                     val url = call.arguments as? String
-                    if (url != null && safe(url)) { authAttempted = false; web.loadUrl(url); true } else false
+                    if (url != null && safe(url)) { authAttempted = false; mainFrameFailed = false; web.loadUrl(url); true } else false
                 }
-                "back" -> if (web.canGoBack()) { web.goBack(); true } else false
-                "forward" -> if (web.canGoForward()) { web.goForward(); true } else false
-                "reload" -> if (web.url?.let(::safe) == true) { authAttempted = false; web.reload(); true } else false
+                "back" -> if (web.canGoBack()) { mainFrameFailed = false; web.goBack(); true } else false
+                "forward" -> if (web.canGoForward()) { mainFrameFailed = false; web.goForward(); true } else false
+                "reload" -> if (web.url?.let(::safe) == true) { authAttempted = false; mainFrameFailed = false; web.reload(); true } else false
                 "stop" -> { web.stopLoading(); true }
                 else -> { result.notImplemented(); return@setMethodCallHandler }
             }
@@ -107,19 +112,29 @@ private class BrowserView(context: Context, messenger: BinaryMessenger, id: Int,
                 override fun onReceivedHttpAuthRequest(view: WebView, handler: HttpAuthHandler, host: String, realm: String) {
                     if (closed || state != "ready" || authAttempted ||
                         (host != "127.0.0.1" && host != "127.0.0.1:$port") || realm.isNotEmpty()) {
-                        handler.cancel(); emit("authError"); return
+                        handler.cancel(); mainFrameFailed = true; emit("authError"); return
                     }
                     authAttempted = true
                     handler.proceed(user, pass)
                 }
                 override fun onReceivedSslError(view: WebView, handler: SslErrorHandler, error: android.net.http.SslError) {
-                    handler.cancel(); emit("loadError")
+                    handler.cancel(); navigationError()
                 }
                 override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-                    if (request.isForMainFrame) emit("loadError")
+                    if (request.isForMainFrame) navigationError()
+                }
+                override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, errorResponse: WebResourceResponse) {
+                    if (request.isForMainFrame) navigationError()
+                }
+                override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+                    if (!closed && safe(url)) {
+                        mainFrameFailed = false
+                        channel.invokeMethod("state", "loading")
+                    }
                 }
                 override fun onPageFinished(view: WebView, url: String) {
-                    if (!closed && safe(url)) channel.invokeMethod("url", url)
+                    if (!closed && !mainFrameFailed && safe(url) && view.url == url)
+                        channel.invokeMethod("url", url)
                 }
             }
             web.webChromeClient = object : WebChromeClient() {
