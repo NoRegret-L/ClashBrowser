@@ -236,21 +236,7 @@ class SubscriptionProfile {
         final family = type == 'IP-CIDR' ? InternetAddressType.IPv4 : InternetAddressType.IPv6;
         if (address == null || address.type != family || parts[0].contains('%') ||
             bits == null || bits < 0 || bits > (family == InternetAddressType.IPv4 ? 32 : 128) ||
-            !RegExp(r'^[0-9]+(Iterable<String> input) {
-    final result = <String>{};
-    final label = RegExp(r'^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$');
-    for (final raw in input) {
-      final domain = raw.trim().toLowerCase();
-      if (domain.length > 253 || !domain.contains('.') ||
-          !domain.split('.').every(label.hasMatch)) {
-        throw const FormatException('Invalid domain suffix');
-      }
-      result.add(domain);
-    }
-    return result;
-  }
-}
-).hasMatch(parts[1])) {
+            !RegExp(r'^[0-9]+$').hasMatch(parts[1])) {
           throw const FormatException('Invalid IP prefix');
         }
         result.add('$type,$target,$action,no-resolve');
