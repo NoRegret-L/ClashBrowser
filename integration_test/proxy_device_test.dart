@@ -18,7 +18,12 @@ Future<void> waitFor(WidgetTester tester, bool Function() condition,
 }
 
 void main() {
-  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  // Integration tests default to a real IME. Flutter issue #134604 describes
+  // repeated enterText retaining the old value. Isolate synthetic input from IME.
+  setUp(() => binding.testTextInput.register());
+  tearDown(() => binding.testTextInput.unregister());
 
   testWidgets('real WebView authenticates, loads TLS page and rejects unmatched domain',
       (tester) async {
@@ -51,10 +56,14 @@ void main() {
       expect(find.text('代理认证失败或不兼容'), findsNothing);
 
       const blocked = 'https://browser-blocked-probe.invalid/';
+      await tester.showKeyboard(address);
+      await tester.pump();
+      expect(tester.widget<TextField>(address).focusNode!.hasFocus, isTrue,
+          reason: 'Address field must own keyboard focus');
       await tester.enterText(address, blocked);
       await tester.pump();
       expect(tester.widget<TextField>(address).controller!.text, blocked,
-          reason: 'Previous navigation must not overwrite a user address draft');
+          reason: 'Second synthetic text entry must update the address field');
       // Exercise the keyboard submission path rather than tapping a potentially
       // moving native-platform-view overlay while the keyboard is showing.
       await tester.testTextInput.receiveAction(TextInputAction.go);
