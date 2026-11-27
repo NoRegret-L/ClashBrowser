@@ -42,7 +42,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
     if (endpoint == null || _core.state != CoreState.listenerReady || _openingBrowser) return;
     setState(() { _openingBrowser = true; _error = null; });
     try {
-      await BrowserBridge.open(endpoint);
+      await BrowserBridge.open(context, endpoint);
     } catch (_) {
       if (mounted) setState(() => _error = '浏览器打开失败：原生代理未就绪或不兼容。');
     } finally {

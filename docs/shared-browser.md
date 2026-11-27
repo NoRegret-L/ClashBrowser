@@ -1,0 +1,7 @@
+# Shared Flutter browser shell
+
+The shared Dart BrowserScreen owns the address bar, forward/back, reload, stop, close and status/error text. Each native adapter renders only a platform view and implements the same per-view method channel (status/load/back/forward/reload/stop/close, state/url events). Android uses AndroidView, iOS UiKitView and the pinned OHOS fork's OhosView. The OHOS build substitutes a tiny platform-view factory Dart file because upstream Flutter has no OhosView type. The old native route and browser toolbars are removed. There is one active browser screen at a time; multi-tab and persistent history are not part of this refactor.
+
+Security boundary: native adapters independently validate HTTPS navigation, install the application-only proxy before allowing navigation, retain no direct fallback rule, keep JavaScript off, and do not grant permissions. A close acknowledgement precedes popping the route and enabling core stop. On Android/OHOS the override is intentionally left installed while the renderer drains. Auth callback behavior and actual network isolation are unverified on devices; an experimental browser is not a security guarantee. iOS uses a nonpersistent data store. Android/OHOS HTTP auth callback limitations remain. No VPN/TUN or system proxy is introduced.
+
+CI: no SDK input changes, so exact existing cached SDK keys should be reused. Platform build must still compile its adapter. The previous run demonstrated 3/3 SDK reuse. Further CI changes are separated so UI refactors do not invalidate the native SDK cache.

@@ -38,21 +38,17 @@ if [[ "${CLASHBROWSER_EMBED_OHOS:-0}" == 1 ]]; then
   grep -F 'ohos.permission.INTERNET' "$module"
   ets=ohos/entry/src/main/ets
   cp native/ohos/BrowserPlugin.ets "$ets/entryability/"
-  cp native/ohos/BrowserPage.ets "$ets/pages/"
-  python3 - "$ets/entryability/EntryAbility.ets" ohos/entry/src/main/resources/base/profile/main_pages.json <<'PY'
-import json, pathlib, sys
-entry, pages = map(pathlib.Path, sys.argv[1:])
+  cp native/ohos/ohos_view.dart.in lib/core/ohos_view.dart
+  python3 - "$ets/entryability/EntryAbility.ets" <<'PY'
+import pathlib, sys
+entry = pathlib.Path(sys.argv[1])
 s = entry.read_text()
-import_line = "import { BrowserPlugin } from './BrowserPlugin';\n"
-anchor = 'GeneratedPluginRegistrant.registerWith(flutterEngine)'
-assert anchor in s, "Flutter EntryAbility template changed"
-# Optional semicolon belongs to the existing statement.
-s = s.replace(anchor, anchor + ';\n    this.addPlugin(new BrowserPlugin())', 1)
-entry.write_text(import_line + s)
-doc = json.loads(pages.read_text())
-if 'pages/BrowserPage' not in doc['src']:
-    doc['src'].append('pages/BrowserPage')
-pages.write_text(json.dumps(doc, indent=2))
+if "new BrowserPlugin()" not in s:
+    anchor = 'GeneratedPluginRegistrant.registerWith(flutterEngine)'
+    assert anchor in s, "Flutter EntryAbility template changed"
+    s = s.replace(anchor, anchor + ';\n    this.addPlugin(new BrowserPlugin())', 1)
+    entry.write_text("import { BrowserPlugin } from './BrowserPlugin';\n" + s)
+
 PY
 fi
 rm -f analysis_options.yaml

@@ -2,93 +2,108 @@
 #import <WebKit/WebKit.h>
 #import <Network/Network.h>
 
-@interface CBBrowserScreen () <WKNavigationDelegate, WKUIDelegate>
+static NSString *const CBViewType = @"clashbrowser/webview/v2";
+
+@interface CBBrowserView : NSObject<FlutterPlatformView, WKNavigationDelegate, WKUIDelegate>
+@property(nonatomic,strong) UIView *container;
 @property(nonatomic,strong) WKWebView *web;
-@property(nonatomic,strong) UITextField *address;
-@property(nonatomic,strong) UILabel *status;
-@property(nonatomic,copy) FlutterResult closed;
-@property(nonatomic,assign) NSInteger port;
-@property(nonatomic,copy) NSString *user;
-@property(nonatomic,copy) NSString *password;
+@property(nonatomic,strong) FlutterMethodChannel *channel;
+@property(nonatomic,assign) BOOL ready;
+@property(nonatomic,assign) BOOL closed;
+- (instancetype)initWithFrame:(CGRect)frame identifier:(int64_t)identifier arguments:(id)args messenger:(NSObject<FlutterBinaryMessenger> *)messenger;
 @end
 
-@implementation CBBrowserScreen
-- (instancetype)initWithPort:(NSInteger)port user:(NSString *)user password:(NSString *)password closed:(FlutterResult)closed {
-    if ((self = [super init])) {
-        _port = port; _user = [user copy]; _password = [password copy]; _closed = [closed copy];
-        self.modalPresentationStyle = UIModalPresentationFullScreen;
-    }
-    return self;
-}
+@implementation CBBrowserView
 - (BOOL)safeURL:(NSURL *)url {
     NSString *host = url.host;
     return [url.scheme.lowercaseString isEqualToString:@"https"] && !url.user &&
-        [host containsString:@"."] && [host rangeOfCharacterFromSet:NSCharacterSet.letterCharacterSet].location != NSNotFound &&
+        [host rangeOfString:@"^[a-zA-Z0-9-]+(\\.[a-zA-Z0-9-]+)+$" options:NSRegularExpressionSearch].location != NSNotFound &&
+        [host rangeOfCharacterFromSet:NSCharacterSet.letterCharacterSet].location != NSNotFound &&
         ![host.lowercaseString hasSuffix:@".localhost"];
 }
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    self.view.backgroundColor = UIColor.systemBackgroundColor;
-    self.address = [[UITextField alloc] init];
-    self.address.placeholder = @"https://example.com";
-    self.address.keyboardType = UIKeyboardTypeURL;
-    self.address.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    UIButton *go = [UIButton buttonWithType:UIButtonTypeSystem]; [go setTitle:@"打开" forState:UIControlStateNormal]; [go addTarget:self action:@selector(loadPage) forControlEvents:UIControlEventTouchUpInside];
-    UIButton *close = [UIButton buttonWithType:UIButtonTypeSystem]; [close setTitle:@"关闭" forState:UIControlStateNormal]; [close addTarget:self action:@selector(closePage) forControlEvents:UIControlEventTouchUpInside];
-    self.status = [[UILabel alloc] init]; self.status.text = @"实验模式 · 无直连回退";
+- (instancetype)initWithFrame:(CGRect)frame identifier:(int64_t)identifier arguments:(id)args messenger:(NSObject<FlutterBinaryMessenger> *)messenger {
+    if (!(self = [super init])) return nil;
+    _container = [[UIView alloc] initWithFrame:frame];
+    _channel = [FlutterMethodChannel methodChannelWithName:[NSString stringWithFormat:@"%@/%lld", CBViewType, identifier] binaryMessenger:messenger];
+    __weak CBBrowserView *weakSelf = self;
+    [_channel setMethodCallHandler:^(FlutterMethodCall *call, FlutterResult result) {
+        CBBrowserView *view = weakSelf;
+        if (!view) { result(@NO); return; }
+        [view handle:call result:result];
+    }];
+    if (![args isKindOfClass:NSString.class]) return self;
+    id decoded = [NSJSONSerialization JSONObjectWithData:[args dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+    if (![decoded isKindOfClass:NSDictionary.class]) return self;
+    NSDictionary *params = decoded;
+    NSNumber *port = params[@"port"]; NSString *user = params[@"username"]; NSString *pass = params[@"password"];
+    if (![port isKindOfClass:NSNumber.class] || port.integerValue < 1 || port.integerValue > 65535 ||
+        ![user isKindOfClass:NSString.class] || ![user isEqualToString:@"browser"] ||
+        ![pass isKindOfClass:NSString.class] ||
+        [pass rangeOfString:@"^[a-f0-9]{64}$" options:NSRegularExpressionSearch].location == NSNotFound) return self;
     WKWebViewConfiguration *config = [[WKWebViewConfiguration alloc] init];
     config.websiteDataStore = [WKWebsiteDataStore nonPersistentDataStore];
     config.defaultWebpagePreferences.allowsContentJavaScript = NO;
-    NSString *port = [NSString stringWithFormat:@"%ld", (long)self.port];
-    nw_endpoint_t endpoint = nw_endpoint_create_host("127.0.0.1", port.UTF8String);
+    NSString *portText = port.stringValue;
+    nw_endpoint_t endpoint = nw_endpoint_create_host("127.0.0.1", portText.UTF8String);
     nw_proxy_config_t proxy = nw_proxy_config_create_http_connect(endpoint, NULL);
-    if (proxy) {
-        nw_proxy_config_set_username_and_password(proxy, self.user.UTF8String, self.password.UTF8String);
-        nw_proxy_config_set_failover_allowed(proxy, false);
-        config.websiteDataStore.proxyConfigurations = @[proxy];
-        self.web = [[WKWebView alloc] initWithFrame:CGRectZero configuration:config];
-        self.web.navigationDelegate = self;
-        self.web.UIDelegate = self;
-    } else { go.enabled = NO; self.status.text = @"代理配置失败"; }
-    self.user = nil; self.password = nil;
-    UIStackView *bar = [[UIStackView alloc] initWithArrangedSubviews:@[self.address, go, close]];
-    bar.axis = UILayoutConstraintAxisHorizontal; bar.spacing = 8;
-    [go setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-    [close setContentHuggingPriority:UILayoutPriorityRequired forAxis:UILayoutConstraintAxisHorizontal];
-    UIView *body = self.web ?: [[UIView alloc] init];
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[bar, self.status, body]];
-    stack.axis = UILayoutConstraintAxisVertical; stack.spacing = 8;
-    stack.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:stack];
-    UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
-    [NSLayoutConstraint activateConstraints:@[
-        [stack.topAnchor constraintEqualToAnchor:safe.topAnchor constant:8],
-        [stack.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
-        [stack.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:8],
-        [stack.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-8]
-    ]];
+    if (!proxy) return self;
+    nw_proxy_config_set_username_and_password(proxy, user.UTF8String, pass.UTF8String);
+    nw_proxy_config_set_failover_allowed(proxy, false);
+    config.websiteDataStore.proxyConfigurations = @[proxy];
+    _web = [[WKWebView alloc] initWithFrame:_container.bounds configuration:config];
+    _web.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    _web.navigationDelegate = self; _web.UIDelegate = self;
+    [_container addSubview:_web];
+    _ready = YES;
+    return self;
 }
-- (void)loadPage {
-    [self.address resignFirstResponder];
-    NSString *raw = [self.address.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    if (![raw containsString:@"://"]) raw = [@"https://" stringByAppendingString:raw ?: @""];
-    NSURL *url = [NSURL URLWithString:raw];
-    if (self.web && [self safeURL:url]) [self.web loadRequest:[NSURLRequest requestWithURL:url]];
-    else self.status.text = @"仅支持 HTTPS 域名";
+- (UIView *)view { return self.container; }
+- (void)handle:(FlutterMethodCall *)call result:(FlutterResult)result {
+    if ([call.method isEqualToString:@"status"]) { result(self.ready && !self.closed ? @"ready" : @"failed"); return; }
+    if ([call.method isEqualToString:@"close"]) { [self close]; result(@YES); return; }
+    if (!self.ready || self.closed) { result(@NO); return; }
+    if ([call.method isEqualToString:@"load"]) {
+        NSURL *url = [call.arguments isKindOfClass:NSString.class] ? [NSURL URLWithString:call.arguments] : nil;
+        if (![self safeURL:url]) { result(@NO); return; }
+        [self.web loadRequest:[NSURLRequest requestWithURL:url]];
+    } else if ([call.method isEqualToString:@"back"]) {
+        if (!self.web.canGoBack) { result(@NO); return; } [self.web goBack];
+    } else if ([call.method isEqualToString:@"forward"]) {
+        if (!self.web.canGoForward) { result(@NO); return; } [self.web goForward];
+    } else if ([call.method isEqualToString:@"reload"]) {
+        if (![self safeURL:self.web.URL]) { result(@NO); return; } [self.web reload];
+    } else if ([call.method isEqualToString:@"stop"]) {
+        [self.web stopLoading];
+    } else { result(FlutterMethodNotImplemented); return; }
+    result(@YES);
 }
-- (void)closePage {
-    [self.web stopLoading]; self.web.navigationDelegate = nil;
+- (void)close {
+    self.ready = NO; self.closed = YES;
+    [self.web stopLoading]; self.web.navigationDelegate = nil; self.web.UIDelegate = nil;
     [self.web removeFromSuperview]; self.web = nil;
-    FlutterResult done = self.closed; self.closed = nil;
-    [self dismissViewControllerAnimated:YES completion:^{ if (done) done(@YES); }];
 }
+- (void)dealloc { [self close]; [self.channel setMethodCallHandler:nil]; }
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
-    decisionHandler([self safeURL:action.request.URL] && action.targetFrame != nil ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
+    decisionHandler(!self.closed && self.ready && [self safeURL:action.request.URL] && action.targetFrame != nil ? WKNavigationActionPolicyAllow : WKNavigationActionPolicyCancel);
 }
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
-    self.status.text = @"网页加载失败（无直连回退）";
+    if (!self.closed) [self.channel invokeMethod:@"state" arguments:@"loadError"];
 }
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
-    self.address.text = webView.URL.absoluteString;
+    if (!self.closed && [self safeURL:webView.URL]) [self.channel invokeMethod:@"url" arguments:webView.URL.absoluteString];
+}
+@end
+
+@interface CBBrowserFactory ()
+@property(nonatomic,strong) NSObject<FlutterBinaryMessenger> *messenger;
+@end
+@implementation CBBrowserFactory
+- (instancetype)initWithMessenger:(NSObject<FlutterBinaryMessenger> *)messenger {
+    if ((self = [super init])) _messenger = messenger;
+    return self;
+}
+- (NSObject<FlutterMessageCodec> *)createArgsCodec { return [FlutterStandardMessageCodec sharedInstance]; }
+- (NSObject<FlutterPlatformView> *)createWithFrame:(CGRect)frame viewIdentifier:(int64_t)viewId arguments:(id)args {
+    return [[CBBrowserView alloc] initWithFrame:frame identifier:viewId arguments:args messenger:self.messenger];
 }
 @end

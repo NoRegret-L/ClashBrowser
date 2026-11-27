@@ -1,6 +1,5 @@
 #import <Flutter/Flutter.h>
-#import <UIKit/UIKit.h>
 
-@interface CBBrowserScreen : UIViewController
-- (instancetype)initWithPort:(NSInteger)port user:(NSString *)user password:(NSString *)password closed:(FlutterResult)closed;
+@interface CBBrowserFactory : NSObject<FlutterPlatformViewFactory>
+- (instancetype)initWithMessenger:(NSObject<FlutterBinaryMessenger> *)messenger;
 @end

@@ -1,0 +1,7 @@
+import 'package:flutter/widgets.dart';
+import 'package:flutter/services.dart';
+
+Widget buildOhosView(String type, String args, ValueChanged<int> onCreated) =>
+    OhosView(viewType: type, creationParams: args,
+      creationParamsCodec: const StandardMessageCodec(),
+      onPlatformViewCreated: onCreated);

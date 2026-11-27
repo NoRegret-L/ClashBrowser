@@ -10,28 +10,7 @@
                                   binaryMessenger:[registrar messenger]];
   ClashbrowserIosProbePlugin *instance = [[ClashbrowserIosProbePlugin alloc] init];
   [registrar addMethodCallDelegate:instance channel:channel];
-  FlutterMethodChannel *browser = [FlutterMethodChannel methodChannelWithName:@"clashbrowser/browser/v1" binaryMessenger:[registrar messenger]];
-  [browser setMethodCallHandler:^(FlutterMethodCall *call, FlutterResult result) {
-    if (![call.method isEqualToString:@"open"] || ![call.arguments isKindOfClass:NSDictionary.class]) { result(FlutterMethodNotImplemented); return; }
-    NSDictionary *args = call.arguments;
-    NSNumber *port = args[@"port"]; NSString *user = args[@"username"]; NSString *pass = args[@"password"];
-    UIViewController *host = nil;
-    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
-      if (scene.activationState != UISceneActivationStateForegroundActive ||
-          ![scene isKindOfClass:UIWindowScene.class]) continue;
-      for (UIWindow *window in ((UIWindowScene *)scene).windows) {
-        if (window.isKeyWindow) { host = window.rootViewController; break; }
-      }
-      if (host) break;
-    }
-    if (![port isKindOfClass:NSNumber.class] || port.integerValue < 1 || port.integerValue > 65535 ||
-        ![user isKindOfClass:NSString.class] || ![user isEqualToString:@"browser"] ||
-        ![pass isKindOfClass:NSString.class] || !pass.length || !host || host.presentedViewController) {
-      result([FlutterError errorWithCode:@"UNAVAILABLE" message:@"Proxy not available" details:nil]); return;
-    }
-    CBBrowserScreen *screen = [[CBBrowserScreen alloc] initWithPort:port.integerValue user:user password:pass closed:result];
-    [host presentViewController:screen animated:YES completion:nil];
-  }];
+  [registrar registerViewFactory:[[CBBrowserFactory alloc] initWithMessenger:[registrar messenger]] withId:@"clashbrowser/webview/v2"];
 }
 
 - (void)handleMethodCall:(FlutterMethodCall *)call result:(FlutterResult)result {
