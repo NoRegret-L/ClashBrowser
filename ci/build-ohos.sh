@@ -70,6 +70,11 @@ if [[ "$experimental_js" == auto && "${CLASHBROWSER_EMBED_OHOS:-0}" == 1 ]]; the
   build_variant false
   baseline="${haps[0]}"
   mkdir -p dist/native-app
+  # The SDK container runs as root; the runner must be able to attach
+  # baseline HAP and provenance after the container exits.
+  if [[ "$(id -u)" == 0 ]]; then
+    chown --reference=. dist dist/native-app
+  fi
   saved="$(mktemp)"
   trap 'rm -f "$saved"' EXIT
   cp "$baseline" "$saved"

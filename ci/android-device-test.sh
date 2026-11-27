@@ -90,7 +90,10 @@ adb -s emulator-5554 shell dumpsys webviewupdate || true
 # Verify actual server receipt, independent of WebView error callbacks.
 python3 - "$fixture/events.jsonl" <<'PY'
 import json, pathlib, sys
-events = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+path = pathlib.Path(sys.argv[1])
+if not path.is_file():
+    raise SystemExit("No TLS fixture events: device test did not reach the controlled origin")
+events = [json.loads(line) for line in path.read_text().splitlines()]
 assert any(e == {"kind": "connect", "value": "browser-tls-probe.invalid:443"} for e in events), events
 assert any(e == {"kind": "https", "value": "/verified"} for e in events), events
 assert not any(e == {"kind": "connect", "value": "browser-blocked-probe.invalid:443"} for e in events), events
