@@ -1,0 +1,99 @@
+name: Prepare v0.0.1-alpha.1 release draft
+on:
+  push:
+    branches: ['release/v0.0.1-alpha.1']
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: release-v0.0.1-alpha.1
+  cancel-in-progress: false
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      BUILD_RUN: '45996497815'
+      DEVICE_RUN: '45996497799'
+      BUILD_SHA: ecf83bcee45e2a7b1c6a3b85f3f2b976db899483
+      TAG: v0.0.1-alpha.1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ecf83bcee45e2a7b1c6a3b85f3f2b976db899483
+          persist-credentials: false
+      - name: Verify exact successful build and device runs
+        run: |
+          set -euo pipefail
+          for run in "$BUILD_RUN" "$DEVICE_RUN"; do
+            gh api "repos/$REPO/actions/runs/$run" | jq -e --arg sha "$BUILD_SHA" '.status=="completed" and .conclusion=="success" and .head_sha==$sha'
+          done
+          test "$(git rev-parse HEAD)" = "$BUILD_SHA"
+          mkdir -p "$RUNNER_TEMP/release-assets" "$RUNNER_TEMP/release-input"
+          for platform in android harmonyos ios; do
+            gh run download "$BUILD_RUN" --repo "$REPO" -n "clashbrowser-native-probe-$platform" -D "$RUNNER_TEMP/release-input/$platform"
+          done
+      - name: Verify binaries and bundle provenance
+        run: |
+          set -euo pipefail
+          src="$RUNNER_TEMP/release-input"
+          out="$RUNNER_TEMP/release-assets"
+          cp "$src/android/app-debug.apk" "$out/ClashBrowser-android-debug.apk"
+          cp "$src/harmonyos/entry-default-unsigned.hap" "$out/ClashBrowser-harmonyos-unsigned.hap"
+          cp "$src/harmonyos/clashbrowser-experimental-js.hap" "$out/ClashBrowser-harmonyos-experimental-js-unsigned.hap"
+          cp "$src/ios/ios-unsigned.zip" "$out/ClashBrowser-ios-unsigned.zip"
+          for pkg in "$out"/*; do unzip -tq "$pkg"; done
+          unzip -Z1 "$out/ClashBrowser-android-debug.apk" > "$RUNNER_TEMP/apk-list"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            grep -Fx "lib/$abi/libclash.so" "$RUNNER_TEMP/apk-list"
+            grep -Fx "lib/$abi/libmihomo-jni.so" "$RUNNER_TEMP/apk-list"
+          done
+          for hap in "$out"/*.hap; do
+            unzip -Z1 "$hap" > "$RUNNER_TEMP/hap-list"
+            grep -Fx 'libs/arm64-v8a/libclash.so' "$RUNNER_TEMP/hap-list"
+          done
+          test "$(sha256sum "$out/ClashBrowser-harmonyos-unsigned.hap" | cut -d' ' -f1)" = d46e9889f20e490513643e511cfb513e632225d948f01b5f41c66a4432d0d6c7
+          test "$(sha256sum "$out/ClashBrowser-harmonyos-experimental-js-unsigned.hap" | cut -d' ' -f1)" = 3c47be68f82c0992a41df3a354087e686b22a66a5d4096f93537e13ae848e941
+          git archive --format=tar.gz --prefix=ClashBrowser/ -o "$out/ClashBrowser-build-source.tar.gz" "$BUILD_SHA"
+          mkdir -p "$RUNNER_TEMP/provenance"
+          for platform in android harmonyos ios; do
+            dest="$RUNNER_TEMP/provenance/$platform"
+            mkdir -p "$dest"
+            for f in LICENSE upstreams.json SHA256SUMS upstream-source.tar.gz clashbrowser-loopback-source.tar.gz; do
+              test -s "$src/$platform/$f"
+              cp "$src/$platform/$f" "$dest/"
+            done
+            tar -tzf "$dest/upstream-source.tar.gz" >/dev/null
+            tar -tzf "$dest/clashbrowser-loopback-source.tar.gz" >/dev/null
+          done
+          tar -czf "$out/ClashBrowser-upstream-provenance.tar.gz" -C "$RUNNER_TEMP/provenance" .
+          (cd "$out" && sha256sum * > SHA256SUMS)
+      - name: Create unpublished prerelease draft
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to overwrite it'
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/release-notes.md" <<'EOF'
+          # ClashBrowser v0.0.1-alpha.1
+          
+          Experimental development preview, Flutter + Mihomo. No system VPN or TUN.
+          Built from ecf83bcee45e2a7b1c6a3b85f3f2b976db899483 (not the current main branch).
+          Three-platform build and Android HTTPS integration passed:
+          https://github.com/NoRegret-L/ClashBrowser/actions/runs/45996497815
+          https://github.com/NoRegret-L/ClashBrowser/actions/runs/45996497799
+          
+          - Android: debug-signed APK, ARM64 / ARMv7 / x86_64.
+          - HarmonyOS: unsigned HAP, default static mode and separate experimental JavaScript mode; requires signing.
+          - iOS: unsigned Runner.app ZIP, requires signing; not an IPA.
+          - SHA256SUMS covers all attached files.
+          
+          Not production-ready: HarmonyOS/iOS proxy behavior and network isolation have not been validated on devices. No claim of leak-free browsing. Experimental JS is off by default.
+          
+          PUBLICATION HOLD: repository-level license has not been selected. Embedded GPL-3.0 cores require appropriate licensing and complete corresponding source. The source and upstream provenance attached here are materials for review, not an attestation of GPL compliance. Confirm rights, licenses, exact dependency sources and reproducible build instructions before publishing binaries. Do not publish this draft until that review is completed.
+          EOF
+          gh release create "$TAG" --repo "$REPO" --target "$BUILD_SHA" --title "ClashBrowser $TAG" --draft --prerelease --notes-file "$RUNNER_TEMP/release-notes.md" "$RUNNER_TEMP/release-assets/"*
+          gh release view "$TAG" --repo "$REPO" --json tagName,isDraft,isPrerelease,url,assets
