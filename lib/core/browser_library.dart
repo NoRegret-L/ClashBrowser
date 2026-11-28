@@ -15,7 +15,8 @@ class BrowserLibrary {
   final File? _file;
   final List<BrowserVisit> _history = [];
   final Set<String> _bookmarks = {};
-  Future<void> _writes = Future<void>.value();
+  Future<void>? _pendingWrite;
+  bool _dirty = false;
   bool storageFailed = false;
 
   List<BrowserVisit> get history => List.unmodifiable(_history.reversed);
@@ -95,28 +96,37 @@ class BrowserLibrary {
     return _save();
   }
 
-  Future<void> flush() => _writes;
+  Future<void> flush() => _pendingWrite ?? Future<void>.value();
 
   Future<void> _save() {
-    final file = _file;
-    if (file == null || storageFailed) return Future.value();
-    final snapshot = jsonEncode({
-      'version': 1,
-      'history': [for (final visit in _history)
-        {'url': visit.url, 'when': visit.when.toIso8601String()}],
-      'bookmarks': _bookmarks.toList(),
-    });
-    _writes = _writes.then((_) async {
-      if (storageFailed) return;
-      try {
-        await file.parent.create(recursive: true);
+    if (_file == null || storageFailed) return Future<void>.value();
+    _dirty = true;
+    // A single writer drains the latest state. Calls arriving before the
+    // snapshot is captured share one write, without a timer or size threshold.
+    return _pendingWrite ??= Future<void>.microtask(_drainWrites);
+  }
+
+  Future<void> _drainWrites() async {
+    final file = _file!;
+    try {
+      await file.parent.create(recursive: true);
+      while (_dirty && !storageFailed) {
+        _dirty = false;
+        final snapshot = jsonEncode({
+          'version': 1,
+          'history': [for (final visit in _history)
+            {'url': visit.url, 'when': visit.when.toIso8601String()}],
+          'bookmarks': _bookmarks.toList(),
+        });
         final temp = File('${file.path}.tmp');
         await temp.writeAsString(snapshot, flush: true);
         await temp.rename(file.path);
-      } catch (_) {
-        storageFailed = true;
+        // Mutations during I/O set _dirty again; never lose the newer state.
       }
-    });
-    return _writes;
+    } catch (_) {
+      storageFailed = true;
+    } finally {
+      _pendingWrite = null;
+    }
   }
 }
