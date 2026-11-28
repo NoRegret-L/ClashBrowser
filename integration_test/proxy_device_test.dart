@@ -59,6 +59,22 @@ void main() {
       expect(find.text('网页加载失败（无直连回退）'), findsNothing);
       expect(find.text('代理认证失败或不兼容'), findsNothing);
 
+      // An origin can request Basic authentication with an empty realm.
+      // The proxy's random secret must never be supplied to that origin.
+      await tester.showKeyboard(address);
+      await tester.pump();
+      const authUrl = 'https://browser-tls-probe.invalid/auth-required';
+      await tester.enterText(address, authUrl);
+      await tester.pump();
+      expect(tester.widget<TextField>(address).controller!.text, authUrl);
+      await tester.testTextInput.receiveAction(TextInputAction.go);
+      await tester.pump();
+      await waitFor(tester, () =>
+          find.text('代理认证失败或不兼容').evaluate().isNotEmpty ||
+          find.text('网页加载失败（无直连回退）').evaluate().isNotEmpty,
+          'Origin authentication challenge must not succeed');
+      print('TEST: origin authentication challenge rejected');
+
       const blocked = 'https://browser-blocked-probe.invalid/';
       await tester.showKeyboard(address);
       await tester.pump();

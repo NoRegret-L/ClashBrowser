@@ -129,6 +129,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        with:
+          cache-read-only: ${{ github.event_name != 'push' }}
       - name: Install pinned Android NDK
         if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.0.13004108" "cmake;3.22.1" "platforms;android-36"'

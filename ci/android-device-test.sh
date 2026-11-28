@@ -105,6 +105,8 @@ if not path.is_file():
 events = [json.loads(line) for line in path.read_text().splitlines()]
 assert any(e == {"kind": "connect", "value": "browser-tls-probe.invalid:443"} for e in events), events
 assert any(e == {"kind": "https", "value": "/verified"} for e in events), events
+assert any(e == {"kind": "https", "value": "/auth-required"} for e in events), events
+assert not any(e["kind"] == "credential-leak" for e in events), "Proxy credential reached origin"
 assert not any(e == {"kind": "connect", "value": "browser-blocked-probe.invalid:443"} for e in events), events
 print("Authenticated CONNECT and TLS origin receipt verified; blocked host not observed at relay")
 PY

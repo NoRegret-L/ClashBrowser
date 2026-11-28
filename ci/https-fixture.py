@@ -23,6 +23,17 @@ class Origin(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         record("https", self.path)
+        # Record presence only; never log actual credentials.
+        if self.headers.get("Authorization") or self.headers.get("Proxy-Authorization"):
+            record("credential-leak", "origin-header")
+            self.send_error(400)
+            return
+        if self.path == "/auth-required":
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm=""')
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if self.path == "/start":
             self.send_response(302)
             self.send_header("Location", "/verified")
