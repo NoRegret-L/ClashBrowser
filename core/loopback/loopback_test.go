@@ -38,7 +38,17 @@ func TestAuthenticatedLoopback(t *testing.T) {
  body,_:=io.ReadAll(response.Body);response.Body.Close()
  if response.StatusCode!=200||string(body)!="ok"{t.Fatal("proxy routing failed")}
  response,err=client.Get("http://blocked.invalid/");if err==nil{response.Body.Close();if response.StatusCode<400{t.Fatal("default reject failed")}}
+ for host,policy:=range map[string]string{"proxied.invalid":"BROWSER-PROXY","blocked.invalid":"REJECT"} {
+  b,_:=json.Marshal(map[string]string{"action":"observedRoute","host":host})
+  var result struct { Observed bool; Matches []routeMatch }
+  if json.Unmarshal([]byte(Command(string(b))),&result)!=nil||!result.Observed||len(result.Matches)==0||result.Matches[0].Policy!=policy {t.Fatalf("missing actual decision for %s: %+v",host,result)}
+ }
  if call("stop","")["stopped"]!=true{t.Fatal("stop failed")}
+ if res:=call("start",cfg);res["ready"]!=true{t.Fatal("restart failed")}
+ var fresh map[string]any
+ _=json.Unmarshal([]byte(Command("{\"action\":\"observedRoute\",\"host\":\"proxied.invalid\"}")),&fresh)
+ if fresh["observed"]!=false{t.Fatal("previous session observations leaked")}
+ if call("stop","")["stopped"]!=true{t.Fatal("second stop failed")}
  transport.CloseIdleConnections()
  if response,err=client.Get("http://proxied.invalid/");err==nil{response.Body.Close();t.Fatal("listener remained open")}
 }

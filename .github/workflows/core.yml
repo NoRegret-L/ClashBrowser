@@ -13,8 +13,9 @@ on:
       - 'native/**'
       - 'pubspec.yaml'
       - '.github/workflows/core.yml'
+      - '.github/workflows/native-app.yml'
   push:
-    branches: [main]
+    branches: [main, 'test/native-route-observation']
     paths:
       - 'core/**'
       - 'ci/**'
@@ -23,6 +24,7 @@ on:
       - 'integration_test/**'
       - 'pubspec.lock'
       - '.github/workflows/core.yml'
+      - '.github/workflows/native-app.yml'
       - 'lib/**'
       - 'test/**'
       - 'native/**'
@@ -154,7 +156,7 @@ jobs:
           cp vendor/android/LICENSE dist/android/
           git -C vendor/android archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/android/upstream-source.tar.gz" HEAD
           cp core/upstreams.json dist/android/
-          tar -czf dist/android/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
+          tar -czf dist/android/clashbrowser-loopback-source.tar.gz core/loopback core/routehook ci/install-loopback.sh
           (cd dist/android && sha256sum *.aar upstream-source.tar.gz > SHA256SUMS)
       - name: Verify cached or newly built SDK
         run: |
@@ -249,7 +251,7 @@ jobs:
           cp vendor/apple/LICENSE dist/ios/
           git -C vendor/apple archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/ios/upstream-source.tar.gz" HEAD
           cp core/upstreams.json dist/ios/
-          tar -czf dist/ios/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
+          tar -czf dist/ios/clashbrowser-loopback-source.tar.gz core/loopback core/routehook ci/install-loopback.sh
           (cd dist/ios && shasum -a 256 Clash.xcframework.zip upstream-source.tar.gz > SHA256SUMS)
       - name: Verify cached or newly built SDK
         run: |
@@ -335,7 +337,7 @@ jobs:
           cp vendor/arkclash/core/arkclash.h vendor/arkclash/LICENSE dist/harmonyos/
           git -C vendor/arkclash archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/harmonyos/upstream-source.tar.gz" HEAD
           cp core/upstreams.json dist/harmonyos/
-          tar -czf dist/harmonyos/clashbrowser-loopback-source.tar.gz core/loopback ci/install-loopback.sh
+          tar -czf dist/harmonyos/clashbrowser-loopback-source.tar.gz core/loopback core/routehook ci/install-loopback.sh
           (cd dist/harmonyos && sha256sum libclash.so upstream-source.tar.gz > SHA256SUMS)
       - name: Verify cached or newly built SDK
         run: |
@@ -349,100 +351,32 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  native-app:
-    name: Embedded SDK app (${{ matrix.platform }})
-    needs: [android, ios, harmonyos, host-routing]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: android
-            os: ubuntu-latest
-            artifact: mihomo-android-sdk-experimental
-          - platform: ios
-            os: macos-15
-            artifact: mihomo-ios-sdk-experimental
-          - platform: harmonyos
-            os: ubuntu-latest
-            artifact: mihomo-harmonyos-sdk-experimental
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/download-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: sdk-input
-      - uses: actions/download-artifact@v4
-        with:
-          name: clashbrowser-builtin-rules
-          path: rule-input
-      - name: Stage verified build-time rule snapshot
-        run: |
-          test -s rule-input/assets/rules/manifest.json
-          cp -R rule-input/assets/rules/. assets/rules/
-      - uses: actions/setup-java@v4
-        if: matrix.platform == 'android'
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
-        if: matrix.platform != 'harmonyos'
-        with:
-          flutter-version: '3.35.7'
-          channel: stable
-          cache: true
-          pub-cache: true
-      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
-        if: matrix.platform == 'android'
-        with:
-          cache-read-only: false
-      - name: Verify SDK and build Android or iOS app
-        if: matrix.platform != 'harmonyos'
-        run: bash ci/embed-mobile.sh "${{ matrix.platform }}" "$GITHUB_WORKSPACE/sdk-input" "$RUNNER_TEMP/clashbrowser-native"
-      - name: Fetch pinned HarmonyOS SDK builder
-        if: matrix.platform == 'harmonyos'
-        run: |
-          git init "$RUNNER_TEMP/ohos-builder"
-          git -C "$RUNNER_TEMP/ohos-builder" fetch --depth=1 https://github.com/zhongdaiqi/flutter-ohos-builder.git 5479a5b90e78794a2d04294ca0f14788911678e0
-          git -C "$RUNNER_TEMP/ohos-builder" checkout --detach FETCH_HEAD
-      - uses: docker/setup-buildx-action@v3
-        if: matrix.platform == 'harmonyos'
-      - uses: docker/build-push-action@v6
-        if: matrix.platform == 'harmonyos'
-        with:
-          context: ${{ runner.temp }}/ohos-builder
-          tags: clashbrowser-ohos-ci
-          load: true
-          cache-from: type=gha,scope=ohos-sdk-5479a5b
-          cache-to: type=gha,mode=min,scope=ohos-sdk-5479a5b,ignore-error=true
-      - name: Build HAP with native library
-        if: matrix.platform == 'harmonyos'
-        run: |
-          set -o pipefail
-          (cd sdk-input && sha256sum -c SHA256SUMS)
-          docker run --rm --entrypoint /bin/bash \
-            -e CLASHBROWSER_EMBED_OHOS=1 \
-            -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
-            clashbrowser-ohos-ci /workspace/ci/build-ohos.sh 2>&1 | tee ohos-native.log
-          mkdir -p dist/native-app
-          cp build/ohos/hap/*-unsigned.hap dist/native-app/
-          unzip -Z1 dist/native-app/*-unsigned.hap > "$RUNNER_TEMP/hap-list"
-          grep -E '(^|/)libclash\.so$' "$RUNNER_TEMP/hap-list"
-      - name: Attach source provenance
-        run: |
-          cp sdk-input/LICENSE sdk-input/upstreams.json sdk-input/SHA256SUMS dist/native-app/
-          cp sdk-input/upstream-source.tar.gz sdk-input/clashbrowser-loopback-source.tar.gz dist/native-app/
-          cp rule-input/loyalsoldier-source.tar.gz rule-input/snapshot.json dist/native-app/
-          cp -R rule-input/assets/rules dist/native-app/builtin-rules
-      - uses: actions/upload-artifact@v4
-        with:
-          name: clashbrowser-native-probe-${{ matrix.platform }}
-          path: dist/native-app/
-          retention-days: 7
-          if-no-files-found: error
+  native-app-android:
+    name: Embedded SDK app (android)
+    needs: [android, host-routing]
+    uses: ./.github/workflows/native-app.yml
+    with:
+      platform: android
+      os: ubuntu-latest
+      artifact: mihomo-android-sdk-experimental
+
+  native-app-ios:
+    name: Embedded SDK app (ios)
+    needs: [ios, host-routing]
+    uses: ./.github/workflows/native-app.yml
+    with:
+      platform: ios
+      os: macos-15
+      artifact: mihomo-ios-sdk-experimental
+
+  native-app-harmonyos:
+    name: Embedded SDK app (harmonyos)
+    needs: [harmonyos, host-routing]
+    uses: ./.github/workflows/native-app.yml
+    with:
+      platform: harmonyos
+      os: ubuntu-latest
+      artifact: mihomo-harmonyos-sdk-experimental
 
   android-emulator:
     needs: [android, host-routing]
@@ -489,3 +423,24 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
           script: bash ci/android-device-test.sh "$RUNNER_TEMP/clashbrowser-device" "$GITHUB_WORKSPACE/sdk-input"
+
+  native-matrix-gate:
+    name: Full native verification
+    if: always()
+    needs: [host-routing, android, ios, harmonyos, native-app-android, native-app-ios, native-app-harmonyos, android-emulator]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - name: Require every native check to succeed
+        run: |
+          python3 - <<'PY'
+          import json, os
+          needs = json.loads(os.environ['RESULTS'])
+          assert len(needs) == 8, needs
+          failed = {job: item['result'] for job, item in needs.items() if item['result'] != 'success'}
+          if failed:
+              raise SystemExit(f'Incomplete native verification: {failed}')
+          print('All native verification jobs succeeded')
+          PY

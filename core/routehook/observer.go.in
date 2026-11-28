@@ -1,0 +1,19 @@
+package tunnel
+
+import (
+ "sync/atomic"
+ C "MODULE_PREFIX/constant"
+)
+
+// Only the resolved routing decision is exposed. No dial or rule is changed.
+var clashBrowserRouteObserver atomic.Pointer[func(*C.Metadata,C.Proxy,C.Rule)]
+
+func SetClashBrowserRouteObserver(observer func(*C.Metadata,C.Proxy,C.Rule)) {
+ if observer==nil {clashBrowserRouteObserver.Store(nil);return}
+ clashBrowserRouteObserver.Store(&observer)
+}
+
+func clashBrowserNotifyRoute(metadata *C.Metadata, proxy C.Proxy, rule C.Rule, err error) {
+ if err!=nil||metadata==nil||proxy==nil||rule==nil{return}
+ if observer:=clashBrowserRouteObserver.Load();observer!=nil {(*observer)(metadata,proxy,rule)}
+}

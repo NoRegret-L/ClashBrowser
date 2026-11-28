@@ -8,6 +8,30 @@ case "$platform" in
  ios|host) module=vendor/apple; prefix=github.com/ProjectClash/Clash ;;
  *) exit 2 ;;
 esac
+# Install the same match-result observer in the three pinned native builds.
+# Android uses a private copy of the downloaded dependency; ArkClash already
+# creates and patches a private dependency tree for each ABI.
+case "$platform" in
+ android)
+  (
+   cd "$module"
+   go mod download github.com/metacubex/mihomo
+   dep="$(go list -m -f '{{.Dir}}' github.com/metacubex/mihomo)"
+   target="$PWD/.clashbrowser-mihomo"
+   test ! -e "$target"
+   cp -R "$dep" "$target"
+   chmod -R u+w "$target"
+   python3 "$root/core/routehook/install.py" "$target" github.com/metacubex/mihomo
+   go mod edit "-replace=github.com/metacubex/mihomo=$target"
+  )
+  ;;
+ harmonyos)
+  printf '\npython3 %q "$DEST" github.com/metacubex/mihomo\n' "$root/core/routehook/install.py" >> vendor/arkclash/scripts/prepare-mihomo.sh
+  ;;
+ ios|host)
+  python3 "$root/core/routehook/install.py" "$module" github.com/ProjectClash/Clash
+  ;;
+esac
 mkdir -p "$module/browserloop"
 for source in core/loopback/*.go; do
  f="$(basename "$source")"

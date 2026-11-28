@@ -26,6 +26,7 @@ import (
 
 var lifecycle sync.Mutex
 var active *session
+var sessionSequence uint64
 var domain = regexp.MustCompile("^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$")
 var protocols = map[string]string{
  "http":"username password", "socks5":"username password",
@@ -40,6 +41,8 @@ type session struct {
  closed bool
  clients map[*tracked]struct{}
  providers []func() error
+ inboundName string
+ routes routeHistory
 }
 type tracked struct { net.Conn; owner *session; once sync.Once }
 func (c *tracked) Close() error {
@@ -57,7 +60,7 @@ func (s *session) serve(store auth.AuthStore) {
   s.clients[client]=struct{}{}
   s.mu.Unlock()
   // CONNECT transfers ownership to Mihomo; close on session shutdown, not handler return.
-  go proxyhttp.HandleConn(client,tunnel.Tunnel,store,inbound.WithInName("CLASHBROWSER"),inbound.WithSpecialRules(""))
+  go proxyhttp.HandleConn(client,tunnel.Tunnel,store,inbound.WithInName(s.inboundName),inbound.WithSpecialRules(""))
  }
 }
 func (s *session) close() error {
@@ -150,15 +153,15 @@ func failure() string {return reply(map[string]any{"ready":false,"error":"native
 func Command(input string)(out string) {
  lifecycle.Lock();defer lifecycle.Unlock()
  var pending *session
- defer func(){if recover()!=nil {if pending!=nil{pending.close()};if active!=nil{active.close();active=nil};tunnel.OnSuspend();out=failure()}}()
+ defer func(){if recover()!=nil {tunnel.SetClashBrowserRouteObserver(nil);if pending!=nil{pending.close()};if active!=nil{active.close();active=nil};tunnel.OnSuspend();out=failure()}}()
  var r request
  if json.Unmarshal([]byte(input),&r)!=nil{return failure()}
  switch r.Action {
  case "observedRoute":
   if active==nil{return failure()}
-  return observedRoute(r.Host)
+  return active.routes.reply(r.Host)
  case "stop":
-  if active!=nil {s:=active;active=nil;err:=s.close();tunnel.OnSuspend();if err!=nil{return failure()}}
+  if active!=nil {tunnel.SetClashBrowserRouteObserver(nil);s:=active;active=nil;err:=s.close();tunnel.OnSuspend();if err!=nil{return failure()}}
   return reply(map[string]any{"stopped":true})
  case "start":
   if active!=nil || !filepath.IsAbs(r.HomeDir){return failure()}
@@ -184,6 +187,10 @@ func Command(input string)(out string) {
   port,err:=strconv.Atoi(portText);if err!=nil{pending.close();pending=nil;tunnel.OnSuspend();return failure()}
   // No imported listening ports, TUN, external controller, or VPN setup.
   store:=authstore.NewAuthStore(auth.NewAuthenticator([]auth.AuthUser{{User:"browser",Pass:password}}))
+  sessionSequence++
+  pending.inboundName="CLASHBROWSER-"+strconv.FormatUint(sessionSequence,10)
+  observedSession:=pending
+  tunnel.SetClashBrowserRouteObserver(func(m *C.Metadata,p C.Proxy,r C.Rule){observedSession.routes.observe(observedSession.inboundName,m,p,r)})
   active=pending;pending=nil
   go active.serve(store)
   return reply(map[string]any{"ready":true,"host":"127.0.0.1","port":port,"tunEnabled":false,"username":"browser","password":password})
