@@ -302,6 +302,8 @@ class _BrowserScreenState extends State<BrowserScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final tabs = _tabs.tabs;
+    final activeId = _tabs.active.id;
     return PopScope(
       canPop: _allowPop,
       onPopInvokedWithResult: (didPop, _) { if (!didPop) _close(); },
@@ -321,18 +323,21 @@ class _BrowserScreenState extends State<BrowserScreen> {
         body: SafeArea(
           child: Column(children: [
             Row(children: [
-              Expanded(child: SizedBox(height: 46, child: ListView(scrollDirection: Axis.horizontal, children: [
-                for (final tab in _tabs.tabs)
-                  Padding(padding: const EdgeInsets.symmetric(horizontal: 3), child: InputChip(
+              Expanded(child: SizedBox(height: 46, child: ListView.builder(
+                scrollDirection: Axis.horizontal, itemCount: tabs.length,
+                itemBuilder: (_, index) {
+                  final tab = tabs[index];
+                  return Padding(padding: const EdgeInsets.symmetric(horizontal: 3), child: InputChip(
                     label: Text(tab.url == null ? '新标签页' : Uri.parse(tab.url!).host),
-                    selected: tab.id == _tabs.active.id,
-                    onPressed: !_canSwitch || tab.id == _tabs.active.id ? null : () => _switch(() => _tabs.activate(tab.id)),
+                    selected: tab.id == activeId,
+                    onPressed: !_canSwitch || tab.id == activeId ? null : () => _switch(() => _tabs.activate(tab.id)),
                     onDeleted: !_canSwitch ? null : () {
                       if (tab.id == _tabs.active.id) { _switch(() => _tabs.close(tab.id)); }
                       else { setState(() => _tabs.close(tab.id)); }
                     },
-                  )),
-              ]))),
+                  ));
+                },
+              ))),
               IconButton(tooltip: '新建标签页', onPressed: _canSwitch ? () => _switch(_tabs.add) : null, icon: const Icon(Icons.add)),
             ]),
             Padding(padding: const EdgeInsets.symmetric(horizontal: 8),

@@ -25,6 +25,11 @@ func TestPhase3AuthenticatedLoopbackHTTP(t *testing.T) {
      w.WriteHeader(http.StatusBadRequest)
      return
     }
+    if r.URL.Path == "/auth-required" {
+     w.Header().Set("WWW-Authenticate", `Basic realm=""`)
+     w.WriteHeader(http.StatusUnauthorized)
+     return
+    }
     if r.URL.Path != "/local-probe" { t.Error("unexpected origin request"); w.WriteHeader(400); return }
     _, _ = io.WriteString(w, "local-ok")
    }))
@@ -68,6 +73,12 @@ func TestPhase3AuthenticatedLoopbackHTTP(t *testing.T) {
    _ = response.Body.Close()
    if err != nil || response.StatusCode != http.StatusOK || string(body) != "local-ok" {
     t.Fatal("authenticated loopback HTTP failed")
+   }
+   response, err = client.Get(origin.URL+"/auth-required")
+   if err != nil { t.Fatal(err) }
+   _ = response.Body.Close()
+   if response.StatusCode != http.StatusUnauthorized || response.Header.Get("WWW-Authenticate") != `Basic realm=""` || response.Header.Get("Proxy-Authenticate") != "" {
+    t.Fatal("origin authentication challenge not isolated from proxy authentication")
    }
   })
  }

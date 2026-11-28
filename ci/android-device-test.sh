@@ -76,13 +76,22 @@ for _ in $(seq 1 50); do
   sleep 0.1
 done
 proxy_port="$(cat "$fixture/port")"
+adb -s emulator-5554 wait-for-device
 adb -s emulator-5554 reverse "tcp:$proxy_port" "tcp:$proxy_port"
+adb -s emulator-5554 reverse --list | grep -F "tcp:$proxy_port tcp:$proxy_port"
 cd "$project"
 flutter pub get
 flutter analyze --no-pub integration_test
 test_status=0
 flutter test --no-pub integration_test/proxy_device_test.dart \
   -d emulator-5554 --dart-define="TEST_PROXY_PORT=$proxy_port" || test_status=$?
+if [[ "$test_status" != 0 ]]; then
+  echo 'Device startup diagnostics (no app logs or credentials)'
+  adb -s emulator-5554 get-state || true
+  adb -s emulator-5554 shell getprop sys.boot_completed || true
+  adb -s emulator-5554 shell pidof io.github.noregretl.clashbrowser || true
+  adb -s emulator-5554 reverse --list || true
+fi
 # Fixture events contain only reserved test names and paths, never credentials.
 if [[ -f "$fixture/events.jsonl" ]]; then cat "$fixture/events.jsonl"; fi
 adb -s emulator-5554 shell dumpsys webviewupdate || true
@@ -96,6 +105,8 @@ if not path.is_file():
 events = [json.loads(line) for line in path.read_text().splitlines()]
 assert any(e == {"kind": "connect", "value": "browser-tls-probe.invalid:443"} for e in events), events
 assert any(e == {"kind": "https", "value": "/verified"} for e in events), events
+assert any(e == {"kind": "https", "value": "/auth-required"} for e in events), events
+assert not any(e["kind"] == "credential-leak" for e in events), "Proxy credential reached origin"
 assert not any(e == {"kind": "connect", "value": "browser-blocked-probe.invalid:443"} for e in events), events
 print("Authenticated CONNECT and TLS origin receipt verified; blocked host not observed at relay")
 PY

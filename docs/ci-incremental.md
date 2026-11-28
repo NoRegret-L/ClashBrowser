@@ -9,3 +9,9 @@ The Android embedded build now uses the same Gradle cache action as the emulator
 Review CI timings on comparable cold and warm runs before claiming a speedup. GitHub cache branch scope can prevent reuse across unrelated PRs. Full rule conversion remains in host routing until a separate, verified rule artifact reuse design is proven. Device isolation and release checks remain mandatory; this PR does not configure repository branch protection or claim physical-device evidence.
 
 Each embedded application now waits only for its own SDK and host-routing rule artifact. The reusable native-app workflow retains the original build, provenance and artifact steps. Full native verification fails if any of the eight prerequisites is failed, cancelled or skipped. The HarmonyOS Docker cache configuration is unchanged pending warm/cold evidence. Existing check names may change for called workflows; review branch protection before making the new aggregate gate required.
+
+### Cold PR Docker cache and Android device startup
+
+The pinned single-stage OHOS Dockerfile already uses final-layer cache. In PR #4 a cold build exported a 2.32 GB SDK layer and other layers, consuming 281.1 s. PR caches are isolated from unrelated PRs. Restrict export to main and feat/mobile-bootstrap pushes, while every PR retains cache imports and the same pinned Docker build plus both HAP variants. Development pushes now run core CI to seed shared base caches. First cold PR can still be slow; compare later warm runs. No mutable image tag or registry trust is introduced.
+
+PR #4's emulator installed its APK but timed out before any fixture event. Provision the Flutter template's observed NDK/CMake versions before boot, check ADB reverse mapping, and add non-secret lifecycle checkpoints and failure diagnostics. Keep the original watchdog, test assertions and required fixture evidence. The root cause is not yet proven; do not merge until the real test passes.

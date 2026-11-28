@@ -27,6 +27,7 @@ void main() {
 
   testWidgets('real WebView authenticates, loads TLS page and rejects unmatched domain',
       (tester) async {
+    print('TEST: integration test body entered');
     const port = int.fromEnvironment('TEST_PROXY_PORT');
     expect(port, inInclusiveRange(1, 65535), reason: 'Run ci/android-device-test.sh');
     final core = ChannelCoreAdapter();
@@ -37,12 +38,14 @@ void main() {
           selectedNode: 'fixture',
           routingMode: RoutingMode.strict,
           proxyDomains: ['browser-tls-probe.invalid'])))!;
+      print('TEST: native core ready');
       await tester.pumpWidget(MaterialApp(home: BrowserScreen(endpoint: endpoint)));
       final open = find.byWidgetPredicate(
           (w) => w is IconButton && w.tooltip == '打开');
       await waitFor(tester,
           () => tester.widget<IconButton>(open).onPressed != null,
           'Native WebView proxy never became ready');
+      print('TEST: native WebView ready');
 
       final address = find.byKey(const Key('browser-address'));
       await tester.enterText(address, 'https://browser-tls-probe.invalid/start');
@@ -55,6 +58,22 @@ void main() {
       print('TEST: authenticated TLS redirect reached /verified');
       expect(find.text('网页加载失败（无直连回退）'), findsNothing);
       expect(find.text('代理认证失败或不兼容'), findsNothing);
+
+      // An origin can request Basic authentication with an empty realm.
+      // The proxy's random secret must never be supplied to that origin.
+      await tester.showKeyboard(address);
+      await tester.pump();
+      const authUrl = 'https://browser-tls-probe.invalid/auth-required';
+      await tester.enterText(address, authUrl);
+      await tester.pump();
+      expect(tester.widget<TextField>(address).controller!.text, authUrl);
+      await tester.testTextInput.receiveAction(TextInputAction.go);
+      await tester.pump();
+      await waitFor(tester, () =>
+          find.text('代理认证失败或不兼容').evaluate().isNotEmpty ||
+          find.text('网页加载失败（无直连回退）').evaluate().isNotEmpty,
+          'Origin authentication challenge must not succeed');
+      print('TEST: origin authentication challenge rejected');
 
       const blocked = 'https://browser-blocked-probe.invalid/';
       await tester.showKeyboard(address);

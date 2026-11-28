@@ -12,3 +12,9 @@ The classifier uses RFC 1918 IPv4, RFC 4193 IPv6 ULA, IPv4 loopback and IPv6 ::1
 4. Extend device fixtures to test public HTTP, authorized IPv4/IPv6 LAN and loopback, origin 401 challenges, proxy 407, rejected local origins, redirects, subresources and credential non-disclosure on all supported platforms. Full physical-device isolation evidence remains required.
 
 No UI switch or production allowlist is installed by this slice. The new host test checks the native authenticated path, not device WebView safety or LAN reachability. Failed or unavailable IPv6 test infrastructure is not treated as success.
+
+## PR #5 integration and credential regression
+
+Merged PR #4 baseline preserves its Docker export restrictions and emulator diagnostics. The Android SDK Gradle step now uses the same pinned official Gradle action as embedded builds; it restores cached dependencies on PRs and exports on pushes. The previous Android failure was Maven Central HTTP 429, not a host local HTTP test failure. No repository mirror or trust bypass is introduced.
+
+The IPv4 and IPv6 native HTTP fixtures now independently require an unauthenticated proxy 407 and an authenticated origin 401 with an empty realm, with no Authorization or Proxy-Authorization reaching the origin. The Android TLS integration fixture adds an origin 401 challenge and an independent server-side assertion that no credentials reached the origin. These tests are necessary but do not establish that local-origin WebView challenges are distinguishable: Android and HarmonyOS callbacks expose host/realm without a reliable proxy discriminator. Keep production navigation restricted until a verified alternative exists. iOS's explicit isProxy check remains unchanged.
