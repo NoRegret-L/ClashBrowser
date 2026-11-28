@@ -1,0 +1,57 @@
+name: Fast Dart feedback
+on:
+  pull_request:
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'assets/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'ci/sdk-cache-key.py'
+      - '.github/workflows/core.yml'
+      - '.github/workflows/fast.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'lib/**'
+      - 'test/**'
+      - 'assets/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - 'ci/sdk-cache-key.py'
+      - '.github/workflows/core.yml'
+      - '.github/workflows/fast.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: fast-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  dart-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Test incremental cache fingerprint
+        run: python3 ci/sdk-cache-key.py --self-test
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+          pub-cache: true
+      - name: Stage offline Dart package
+        run: |
+          mkdir -p "$RUNNER_TEMP/clashbrowser-fast"
+          cp pubspec.yaml "$RUNNER_TEMP/clashbrowser-fast/"
+          if [[ -f pubspec.lock ]]; then cp pubspec.lock "$RUNNER_TEMP/clashbrowser-fast/"; fi
+          cp -R lib test assets "$RUNNER_TEMP/clashbrowser-fast/"
+      - name: Analyze and run all Dart unit and widget tests
+        working-directory: ${{ runner.temp }}/clashbrowser-fast
+        run: |
+          flutter pub get
+          flutter analyze --no-pub
+          flutter test --no-pub

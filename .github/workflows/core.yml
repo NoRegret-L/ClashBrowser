@@ -3,11 +3,11 @@ on:
   pull_request:
     paths:
       - 'core/**'
-      - 'ci/core-smoke.py'
-      - 'ci/embed-mobile.sh'
-      - 'ci/install-loopback.sh'
-      - 'ci/seed-sdk.py'
-      - 'ci/build-ohos.sh'
+      - 'ci/**'
+      - 'rules/**'
+      - 'assets/**'
+      - 'integration_test/**'
+      - 'pubspec.lock'
       - 'lib/**'
       - 'test/**'
       - 'native/**'
@@ -17,12 +17,12 @@ on:
     branches: [main]
     paths:
       - 'core/**'
-      - 'ci/core-smoke.py'
+      - 'ci/**'
+      - 'rules/**'
+      - 'assets/**'
+      - 'integration_test/**'
+      - 'pubspec.lock'
       - '.github/workflows/core.yml'
-      - 'ci/embed-mobile.sh'
-      - 'ci/install-loopback.sh'
-      - 'ci/seed-sdk.py'
-      - 'ci/build-ohos.sh'
       - 'lib/**'
       - 'test/**'
       - 'native/**'
@@ -78,11 +78,14 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Fingerprint SDK build inputs
+        id: sdk-inputs
+        run: python3 ci/sdk-cache-key.py android
       - uses: actions/cache@v4
         id: sdk-cache
         with:
           path: dist/android
-          key: native-sdk-v1-android-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('core/**', 'ci/install-loopback.sh', '.github/workflows/core.yml') }}
+          key: native-sdk-v2-android-${{ runner.os }}-${{ runner.arch }}-${{ steps.sdk-inputs.outputs.digest }}
       - name: Match last verified SDK inputs
         id: seed-match
         if: steps.sdk-cache.outputs.cache-hit != 'true'
@@ -172,11 +175,14 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Fingerprint SDK build inputs
+        id: sdk-inputs
+        run: python3 ci/sdk-cache-key.py ios
       - uses: actions/cache@v4
         id: sdk-cache
         with:
           path: dist/ios
-          key: native-sdk-v1-ios-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('core/**', 'ci/install-loopback.sh', '.github/workflows/core.yml') }}
+          key: native-sdk-v2-ios-${{ runner.os }}-${{ runner.arch }}-${{ steps.sdk-inputs.outputs.digest }}
       - name: Match last verified SDK inputs
         id: seed-match
         if: steps.sdk-cache.outputs.cache-hit != 'true'
@@ -264,11 +270,14 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Fingerprint SDK build inputs
+        id: sdk-inputs
+        run: python3 ci/sdk-cache-key.py harmonyos
       - uses: actions/cache@v4
         id: sdk-cache
         with:
           path: dist/harmonyos
-          key: native-sdk-v1-harmonyos-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('core/**', 'ci/install-loopback.sh', '.github/workflows/core.yml') }}
+          key: native-sdk-v2-harmonyos-${{ runner.os }}-${{ runner.arch }}-${{ steps.sdk-inputs.outputs.digest }}
       - name: Match last verified SDK inputs
         id: seed-match
         if: steps.sdk-cache.outputs.cache-hit != 'true'
@@ -385,6 +394,11 @@ jobs:
           flutter-version: '3.35.7'
           channel: stable
           cache: true
+          pub-cache: true
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        if: matrix.platform == 'android'
+        with:
+          cache-read-only: false
       - name: Verify SDK and build Android or iOS app
         if: matrix.platform != 'harmonyos'
         run: bash ci/embed-mobile.sh "${{ matrix.platform }}" "$GITHUB_WORKSPACE/sdk-input" "$RUNNER_TEMP/clashbrowser-native"
@@ -458,6 +472,7 @@ jobs:
           flutter-version: '3.35.7'
           channel: stable
           cache: true
+          pub-cache: true
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         with:
           cache-read-only: false
