@@ -1,0 +1,14 @@
+name: clashbrowser_ios_probe
+description: Internal iOS native core version bridge.
+publish_to: none
+version: 0.0.1
+environment:
+  sdk: '>=3.6.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+flutter:
+  plugin:
+    platforms:
+      ios:
+        pluginClass: ClashbrowserIosProbePlugin

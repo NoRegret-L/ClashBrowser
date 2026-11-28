@@ -1,0 +1,451 @@
+name: Mihomo native SDK
+on:
+  pull_request:
+    paths:
+      - 'core/**'
+      - 'ci/**'
+      - 'rules/**'
+      - 'assets/**'
+      - 'integration_test/**'
+      - 'pubspec.lock'
+      - 'lib/**'
+      - 'test/**'
+      - 'native/**'
+      - 'pubspec.yaml'
+      - '.github/workflows/core.yml'
+      - '.github/workflows/native-app.yml'
+  push:
+    branches: [main, 'feat/mobile-bootstrap', 'test/native-route-observation']
+    paths:
+      - 'core/**'
+      - 'ci/**'
+      - 'rules/**'
+      - 'assets/**'
+      - 'integration_test/**'
+      - 'pubspec.lock'
+      - '.github/workflows/core.yml'
+      - '.github/workflows/native-app.yml'
+      - 'lib/**'
+      - 'test/**'
+      - 'native/**'
+      - 'pubspec.yaml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: core-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  host-routing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: ProjectClash/Clash
+          ref: 58cf851790d43c2a14398e0ff0122f56b2299709
+          path: vendor/apple
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: vendor/apple/bind/clash/go.mod
+          cache-dependency-path: vendor/apple/go.sum
+      - name: Build host Mihomo derivative
+        working-directory: vendor/apple
+        run: CGO_ENABLED=0 go build -tags no_tailscale,no_easytier -trimpath -o "$RUNNER_TEMP/mihomo-host" .
+      - name: Generate pinned MRS bundle
+        run: python3 ci/build-rules.py "$RUNNER_TEMP/mihomo-host" dist/rule-bundle
+      - name: Test authenticated loopback and bundled rule projection
+        run: |
+          bash ci/install-loopback.sh host
+          cd vendor/apple
+          CLASHBROWSER_RULE_BUNDLE="$GITHUB_WORKSPACE/dist/rule-bundle/assets/rules" go test -tags no_tailscale,no_easytier ./browserloop -count=1 -v
+      - name: Exercise real HTTP and CONNECT routing
+        run: python3 ci/core-smoke.py "$RUNNER_TEMP/mihomo-host"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clashbrowser-builtin-rules
+          path: dist/rule-bundle/
+          retention-days: 7
+          if-no-files-found: error
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Fingerprint SDK build inputs
+        id: sdk-inputs
+        run: python3 ci/sdk-cache-key.py android
+      - uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: dist/android
+          key: native-sdk-v2-android-${{ runner.os }}-${{ runner.arch }}-${{ steps.sdk-inputs.outputs.digest }}
+      - name: Match last verified SDK inputs
+        id: seed-match
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: python3 ci/seed-sdk.py android
+      - uses: actions/download-artifact@v4
+        id: seed-download
+        if: steps.seed-match.outputs.match == 'true'
+        continue-on-error: true
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45960747868
+          name: mihomo-android-sdk-experimental
+          path: dist/android
+      - name: Check seed SDK
+        id: seed-verify
+        if: steps.seed-download.outcome == 'success'
+        continue-on-error: true
+        run: |
+          cd dist/android
+          sha256sum -c SHA256SUMS
+          test -s clashbrowser-loopback-source.tar.gz
+      - name: Remove unusable seed
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        run: rm -rf dist/android
+      - uses: actions/checkout@v4
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        with:
+          repository: oviron/libmihomo-android
+          ref: 1fc10afa1fcd545ee8ddcfbd82b8dbdc7f34e0e6
+          path: vendor/android
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        with:
+          go-version: '1.27.4'
+          cache-dependency-path: vendor/android/src/main/jni/core/go.sum
+      - uses: actions/setup-java@v4
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned Android NDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.0.13004108" "cmake;3.22.1" "platforms;android-36"'
+      - run: bash ci/install-loopback.sh android
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+      - name: Build JNI core and upstream host tests
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        working-directory: vendor/android
+        run: |
+          (cd src/main/jni/core && go test ./dnsquery/ ./selection/ ./grouptest/)
+          ANDROID_NDK="$ANDROID_HOME/ndk/28.0.13004108" bash build-native.sh
+          bash scripts/check-jni-exports.sh
+          bash gradlew :assembleRelease --no-daemon
+      - name: Verify AAR and package sources
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        run: |
+          mkdir -p dist/android
+          cp vendor/android/build/outputs/aar/*-release.aar dist/android/
+          unzip -tq dist/android/*-release.aar
+          unzip -Z1 dist/android/*-release.aar > "$RUNNER_TEMP/aar-files"
+          for abi in arm64-v8a armeabi-v7a x86_64; do
+            grep -Fx "jni/$abi/libclash.so" "$RUNNER_TEMP/aar-files"
+            grep -Fx "jni/$abi/libmihomo-jni.so" "$RUNNER_TEMP/aar-files"
+          done
+          cp vendor/android/LICENSE dist/android/
+          git -C vendor/android archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/android/upstream-source.tar.gz" HEAD
+          cp core/upstreams.json dist/android/
+          tar -czf dist/android/clashbrowser-loopback-source.tar.gz core/loopback core/routehook ci/install-loopback.sh
+          (cd dist/android && sha256sum *.aar upstream-source.tar.gz > SHA256SUMS)
+      - name: Verify cached or newly built SDK
+        run: |
+          cd dist/android
+          sha256sum -c SHA256SUMS
+          test -s clashbrowser-loopback-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-android-sdk-experimental
+          path: dist/android/
+          retention-days: 7
+          if-no-files-found: error
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Fingerprint SDK build inputs
+        id: sdk-inputs
+        run: python3 ci/sdk-cache-key.py ios
+      - uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: dist/ios
+          key: native-sdk-v2-ios-${{ runner.os }}-${{ runner.arch }}-${{ steps.sdk-inputs.outputs.digest }}
+      - name: Match last verified SDK inputs
+        id: seed-match
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: python3 ci/seed-sdk.py ios
+      - uses: actions/download-artifact@v4
+        id: seed-download
+        if: steps.seed-match.outputs.match == 'true'
+        continue-on-error: true
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45960747868
+          name: mihomo-ios-sdk-experimental
+          path: dist/ios
+      - name: Check seed SDK
+        id: seed-verify
+        if: steps.seed-download.outcome == 'success'
+        continue-on-error: true
+        run: |
+          cd dist/ios
+          shasum -a 256 -c SHA256SUMS
+          test -s clashbrowser-loopback-source.tar.gz
+      - name: Remove unusable seed
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        run: rm -rf dist/ios
+      - uses: actions/checkout@v4
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        with:
+          repository: ProjectClash/Clash
+          ref: 58cf851790d43c2a14398e0ff0122f56b2299709
+          path: vendor/apple
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        with:
+          go-version: '1.26.11'
+          cache-dependency-path: vendor/apple/bind/clash/go.sum
+      - name: Verify standalone Apple Go toolchain
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        working-directory: vendor/apple/bind/clash
+        run: |
+          test "$(go env GOVERSION)" = go1.26.11
+          case "$(go env GOROOT)/" in
+            "$(go env GOMODCACHE)/"*) echo 'GOROOT must not be under GOMODCACHE'; exit 1 ;;
+          esac
+      - run: bash ci/install-loopback.sh ios
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+      - name: Build iOS SDK only
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        working-directory: vendor/apple
+        run: |
+          git describe --tags --abbrev=0 --match 'v*' || git tag v0.0.0-clash.0
+          go install github.com/sagernet/gomobile/cmd/gomobile@v0.1.13
+          go install github.com/sagernet/gomobile/cmd/gobind@v0.1.13
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          go run ./cmd/build_libbox -target apple -slices ios
+          test -d Clash.xcframework/ios-arm64
+          test -d Clash.xcframework/ios-arm64_x86_64-simulator
+      - name: Package SDK and sources
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        run: |
+          mkdir -p dist/ios
+          ditto -c -k --keepParent vendor/apple/Clash.xcframework dist/ios/Clash.xcframework.zip
+          cp vendor/apple/LICENSE dist/ios/
+          git -C vendor/apple archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/ios/upstream-source.tar.gz" HEAD
+          cp core/upstreams.json dist/ios/
+          tar -czf dist/ios/clashbrowser-loopback-source.tar.gz core/loopback core/routehook ci/install-loopback.sh
+          (cd dist/ios && shasum -a 256 Clash.xcframework.zip upstream-source.tar.gz > SHA256SUMS)
+      - name: Verify cached or newly built SDK
+        run: |
+          cd dist/ios
+          shasum -a 256 -c SHA256SUMS
+          test -s clashbrowser-loopback-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-ios-sdk-experimental
+          path: dist/ios/
+          retention-days: 7
+          if-no-files-found: error
+  harmonyos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Fingerprint SDK build inputs
+        id: sdk-inputs
+        run: python3 ci/sdk-cache-key.py harmonyos
+      - uses: actions/cache@v4
+        id: sdk-cache
+        with:
+          path: dist/harmonyos
+          key: native-sdk-v2-harmonyos-${{ runner.os }}-${{ runner.arch }}-${{ steps.sdk-inputs.outputs.digest }}
+      - name: Match last verified SDK inputs
+        id: seed-match
+        if: steps.sdk-cache.outputs.cache-hit != 'true'
+        run: python3 ci/seed-sdk.py harmonyos
+      - uses: actions/download-artifact@v4
+        id: seed-download
+        if: steps.seed-match.outputs.match == 'true'
+        continue-on-error: true
+        with:
+          github-token: ${{ github.token }}
+          run-id: 45960747868
+          name: mihomo-harmonyos-sdk-experimental
+          path: dist/harmonyos
+      - name: Check seed SDK
+        id: seed-verify
+        if: steps.seed-download.outcome == 'success'
+        continue-on-error: true
+        run: |
+          cd dist/harmonyos
+          sha256sum -c SHA256SUMS
+          test -s clashbrowser-loopback-source.tar.gz
+      - name: Remove unusable seed
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        run: rm -rf dist/harmonyos
+      - uses: actions/checkout@v4
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        with:
+          repository: VOD-Studio/ArkClash
+          ref: db87381185aa1e49c7913a1f62171ed3ea61a662
+          path: vendor/arkclash
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        with:
+          go-version-file: vendor/arkclash/.go-version
+          cache-dependency-path: vendor/arkclash/core/go.sum
+      - name: Fetch upstream OpenHarmony NDK
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        working-directory: vendor/arkclash
+        run: bash scripts/ci/fetch-ohos-ndk.sh 7.0-Release ohos-sdk/linux/native-linux-x64-26.0.0.38-Beta.zip "$RUNNER_TEMP/ohos-ndk"
+      - run: bash ci/install-loopback.sh harmonyos
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+      - name: Cross compile ARM64 core with upstream TLS patches
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        working-directory: vendor/arkclash
+        run: |
+          OHOS_SDK="$RUNNER_TEMP/ohos-ndk" ABI=arm64-v8a bash scripts/build-core.sh
+          test -s entry/libs/arm64-v8a/libclash.so
+          "$RUNNER_TEMP/ohos-ndk/native/llvm/bin/llvm-readelf" -h entry/libs/arm64-v8a/libclash.so
+      - name: Package native library and sources
+        if: steps.sdk-cache.outputs.cache-hit != 'true' && steps.seed-verify.outcome != 'success'
+        run: |
+          mkdir -p dist/harmonyos
+          cp vendor/arkclash/entry/libs/arm64-v8a/libclash.so dist/harmonyos/
+          cp vendor/arkclash/core/arkclash.h vendor/arkclash/LICENSE dist/harmonyos/
+          git -C vendor/arkclash archive --format=tar.gz -o "$GITHUB_WORKSPACE/dist/harmonyos/upstream-source.tar.gz" HEAD
+          cp core/upstreams.json dist/harmonyos/
+          tar -czf dist/harmonyos/clashbrowser-loopback-source.tar.gz core/loopback core/routehook ci/install-loopback.sh
+          (cd dist/harmonyos && sha256sum libclash.so upstream-source.tar.gz > SHA256SUMS)
+      - name: Verify cached or newly built SDK
+        run: |
+          cd dist/harmonyos
+          sha256sum -c SHA256SUMS
+          test -s clashbrowser-loopback-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mihomo-harmonyos-sdk-experimental
+          path: dist/harmonyos/
+          retention-days: 7
+          if-no-files-found: error
+
+  native-app-android:
+    name: Embedded SDK app (android)
+    needs: [android, host-routing]
+    uses: ./.github/workflows/native-app.yml
+    with:
+      platform: android
+      os: ubuntu-latest
+      artifact: mihomo-android-sdk-experimental
+
+  native-app-ios:
+    name: Embedded SDK app (ios)
+    needs: [ios, host-routing]
+    uses: ./.github/workflows/native-app.yml
+    with:
+      platform: ios
+      os: macos-15
+      artifact: mihomo-ios-sdk-experimental
+
+  native-app-harmonyos:
+    name: Embedded SDK app (harmonyos)
+    needs: [harmonyos, host-routing]
+    uses: ./.github/workflows/native-app.yml
+    with:
+      platform: harmonyos
+      os: ubuntu-latest
+      artifact: mihomo-harmonyos-sdk-experimental
+
+  android-emulator:
+    needs: [android, host-routing]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: mihomo-android-sdk-experimental
+          path: sdk-input
+      - uses: actions/download-artifact@v4
+        with:
+          name: clashbrowser-builtin-rules
+          path: rule-input
+      - name: Stage bundled rules
+        run: cp -R rule-input/assets/rules/. assets/rules/
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+          pub-cache: true
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        with:
+          cache-read-only: false
+      - name: Provision Flutter Android native build dependencies before emulator
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.0.12077973" "cmake;3.22.1"
+          test -f "$ANDROID_HOME/ndk/27.0.12077973/source.properties"
+          test -x "$ANDROID_HOME/cmake/3.22.1/bin/cmake"
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: ReactiveCircus/android-emulator-runner@62dbb605bba737720e10b196cb4220d374026a6d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: bash ci/android-device-test.sh "$RUNNER_TEMP/clashbrowser-device" "$GITHUB_WORKSPACE/sdk-input"
+
+  native-matrix-gate:
+    name: Full native verification
+    if: always()
+    needs: [host-routing, android, ios, harmonyos, native-app-android, native-app-ios, native-app-harmonyos, android-emulator]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      RESULTS: ${{ toJSON(needs) }}
+    steps:
+      - name: Require every native check to succeed
+        run: |
+          python3 - <<'PY'
+          import json, os
+          needs = json.loads(os.environ['RESULTS'])
+          assert len(needs) == 8, needs
+          failed = {job: item['result'] for job, item in needs.items() if item['result'] != 'success'}
+          if failed:
+              raise SystemExit(f'Incomplete native verification: {failed}')
+          print('All native verification jobs succeeded')
+          PY

@@ -1,0 +1,19 @@
+{
+  "repository": "https://github.com/Loyalsoldier/clash-rules.git",
+  "revision": "12554b18317457aa28eb49c6a80c1a3875aaa6ba",
+  "licenseRevision": "a3e81203072fad94597cae674260f3f19d55ee10",
+  "license": "GPL-3.0",
+  "converterRevision": "58cf851790d43c2a14398e0ff0122f56b2299709",
+  "providers": {
+    "reject": "domain",
+    "private": "domain",
+    "icloud": "domain",
+    "apple": "domain",
+    "google": "domain",
+    "proxy": "domain",
+    "direct": "domain",
+    "lancidr": "ipcidr",
+    "cncidr": "ipcidr",
+    "telegramcidr": "ipcidr"
+  }
+}

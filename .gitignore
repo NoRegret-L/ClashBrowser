@@ -1,0 +1,17 @@
+.dart_tool/
+.flutter-plugins*
+.packages
+build/
+.idea/
+*.iml
+*.p12
+*.p7b
+*.jks
+*.keystore
+*.mobileprovision
+.env
+
+# Build-time local rule assets; regenerated from pinned snapshot.
+assets/rules/*.mrs
+assets/rules/manifest.json
+assets/rules/LICENSE-Loyalsoldier.txt

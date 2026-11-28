@@ -1,0 +1,99 @@
+name: Embedded SDK app
+on:
+  workflow_call:
+    inputs:
+      platform:
+        required: true
+        type: string
+      os:
+        required: true
+        type: string
+      artifact:
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  build:
+    name: Build and verify
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact }}
+          path: sdk-input
+      - uses: actions/download-artifact@v4
+        with:
+          name: clashbrowser-builtin-rules
+          path: rule-input
+      - name: Stage verified build-time rule snapshot
+        run: |
+          test -s rule-input/assets/rules/manifest.json
+          cp -R rule-input/assets/rules/. assets/rules/
+      - uses: actions/setup-java@v4
+        if: inputs.platform == 'android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        if: inputs.platform != 'harmonyos'
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+          pub-cache: true
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        if: inputs.platform == 'android'
+        with:
+          cache-read-only: false
+      - name: Verify SDK and build Android or iOS app
+        if: inputs.platform != 'harmonyos'
+        run: bash ci/embed-mobile.sh "${{ inputs.platform }}" "$GITHUB_WORKSPACE/sdk-input" "$RUNNER_TEMP/clashbrowser-native"
+      - name: Fetch pinned HarmonyOS SDK builder
+        if: inputs.platform == 'harmonyos'
+        run: |
+          git init "$RUNNER_TEMP/ohos-builder"
+          git -C "$RUNNER_TEMP/ohos-builder" fetch --depth=1 https://github.com/zhongdaiqi/flutter-ohos-builder.git 5479a5b90e78794a2d04294ca0f14788911678e0
+          git -C "$RUNNER_TEMP/ohos-builder" checkout --detach FETCH_HEAD
+      - uses: docker/setup-buildx-action@v3
+        if: inputs.platform == 'harmonyos'
+      - uses: docker/build-push-action@v6
+        if: inputs.platform == 'harmonyos'
+        with:
+          context: ${{ runner.temp }}/ohos-builder
+          tags: clashbrowser-ohos-ci
+          load: true
+          cache-from: type=gha,scope=ohos-sdk-5479a5b
+          # PR cache entries cannot be shared with other PRs. Seed the durable
+          # base branch on push instead of exporting gigabytes per PR.
+          cache-to: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/mobile-bootstrap') && 'type=gha,mode=min,scope=ohos-sdk-5479a5b,ignore-error=true' || '' }}
+      - name: Build HAP with native library
+        if: inputs.platform == 'harmonyos'
+        run: |
+          set -o pipefail
+          (cd sdk-input && sha256sum -c SHA256SUMS)
+          docker run --rm --entrypoint /bin/bash \
+            -e CLASHBROWSER_EMBED_OHOS=1 \
+            -v "$GITHUB_WORKSPACE:/workspace" -w /workspace \
+            clashbrowser-ohos-ci /workspace/ci/build-ohos.sh 2>&1 | tee ohos-native.log
+          mkdir -p dist/native-app
+          cp build/ohos/hap/*-unsigned.hap dist/native-app/
+          unzip -Z1 dist/native-app/*-unsigned.hap > "$RUNNER_TEMP/hap-list"
+          grep -E '(^|/)libclash\.so$' "$RUNNER_TEMP/hap-list"
+      - name: Attach source provenance
+        run: |
+          cp sdk-input/LICENSE sdk-input/upstreams.json sdk-input/SHA256SUMS dist/native-app/
+          cp sdk-input/upstream-source.tar.gz sdk-input/clashbrowser-loopback-source.tar.gz dist/native-app/
+          cp rule-input/loyalsoldier-source.tar.gz rule-input/snapshot.json dist/native-app/
+          cp -R rule-input/assets/rules dist/native-app/builtin-rules
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clashbrowser-native-probe-${{ inputs.platform }}
+          path: dist/native-app/
+          retention-days: 7
+          if-no-files-found: error
