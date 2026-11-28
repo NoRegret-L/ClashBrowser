@@ -25,6 +25,11 @@ func TestPhase3AuthenticatedLoopbackHTTP(t *testing.T) {
      w.WriteHeader(http.StatusBadRequest)
      return
     }
+    if r.URL.Path == "/fake-proxy-auth" {
+     w.Header().Set("Proxy-Authenticate", "Basic")
+     w.WriteHeader(http.StatusProxyAuthRequired)
+     return
+    }
     if r.URL.Path == "/auth-required" {
      w.Header().Set("WWW-Authenticate", `Basic realm=""`)
      w.WriteHeader(http.StatusUnauthorized)
@@ -79,6 +84,12 @@ func TestPhase3AuthenticatedLoopbackHTTP(t *testing.T) {
    _ = response.Body.Close()
    if response.StatusCode != http.StatusUnauthorized || response.Header.Get("WWW-Authenticate") != `Basic realm=""` || response.Header.Get("Proxy-Authenticate") != "" {
     t.Fatal("origin authentication challenge not isolated from proxy authentication")
+   }
+   response, err = client.Get(origin.URL+"/fake-proxy-auth")
+   if err != nil { t.Fatal(err) }
+   _ = response.Body.Close()
+   if response.StatusCode != http.StatusBadGateway || response.Header.Get("Proxy-Authenticate") != "" {
+    t.Fatal("upstream 407 was forwarded as local proxy authentication")
    }
   })
  }
