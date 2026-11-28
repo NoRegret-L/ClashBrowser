@@ -69,7 +69,9 @@ jobs:
           tags: clashbrowser-ohos-ci
           load: true
           cache-from: type=gha,scope=ohos-sdk-5479a5b
-          cache-to: type=gha,mode=min,scope=ohos-sdk-5479a5b,ignore-error=true
+          # PR cache entries cannot be shared with other PRs. Seed the durable
+          # base branch on push instead of exporting gigabytes per PR.
+          cache-to: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat/mobile-bootstrap') && 'type=gha,mode=min,scope=ohos-sdk-5479a5b,ignore-error=true' || '' }}
       - name: Build HAP with native library
         if: inputs.platform == 'harmonyos'
         run: |

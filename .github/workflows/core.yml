@@ -15,7 +15,7 @@ on:
       - '.github/workflows/core.yml'
       - '.github/workflows/native-app.yml'
   push:
-    branches: [main, 'test/native-route-observation']
+    branches: [main, 'feat/mobile-bootstrap', 'test/native-route-observation']
     paths:
       - 'core/**'
       - 'ci/**'
@@ -410,6 +410,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
         with:
           cache-read-only: false
+      - name: Provision Flutter Android native build dependencies before emulator
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.0.12077973" "cmake;3.22.1"
+          test -f "$ANDROID_HOME/ndk/27.0.12077973/source.properties"
+          test -x "$ANDROID_HOME/cmake/3.22.1/bin/cmake"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
