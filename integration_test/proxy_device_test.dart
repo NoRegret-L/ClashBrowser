@@ -27,6 +27,7 @@ void main() {
 
   testWidgets('real WebView authenticates, loads TLS page and rejects unmatched domain',
       (tester) async {
+    print('TEST: integration test body entered');
     const port = int.fromEnvironment('TEST_PROXY_PORT');
     expect(port, inInclusiveRange(1, 65535), reason: 'Run ci/android-device-test.sh');
     final core = ChannelCoreAdapter();
@@ -37,12 +38,14 @@ void main() {
           selectedNode: 'fixture',
           routingMode: RoutingMode.strict,
           proxyDomains: ['browser-tls-probe.invalid'])))!;
+      print('TEST: native core ready');
       await tester.pumpWidget(MaterialApp(home: BrowserScreen(endpoint: endpoint)));
       final open = find.byWidgetPredicate(
           (w) => w is IconButton && w.tooltip == '打开');
       await waitFor(tester,
           () => tester.widget<IconButton>(open).onPressed != null,
           'Native WebView proxy never became ready');
+      print('TEST: native WebView ready');
 
       final address = find.byKey(const Key('browser-address'));
       await tester.enterText(address, 'https://browser-tls-probe.invalid/start');
